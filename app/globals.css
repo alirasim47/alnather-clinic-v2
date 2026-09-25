@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+
+html, body { height: 100%; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-surface font-tajawal text-gray-800 antialiased;
+  direction: rtl;
+  overscroll-behavior-y: none;
+  overflow: hidden; /* الـ Shell يتحكم في التمرير */
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+@layer components {
+  .card { @apply bg-white rounded-xl2 shadow-card border border-gray-100; }
+
+  .input {
+    @apply w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm
+    focus:outline-none focus:ring-2 focus:ring-accent/60 focus:border-accent
+    placeholder:text-gray-400 transition min-h-[44px];
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+    text-sm font-bold transition select-none disabled:opacity-50 disabled:cursor-not-allowed
+    min-h-[44px];
+  }
+
+  .btn-accent        { @apply btn bg-accent text-black hover:bg-accent-hover shadow-sm; }
+  .btn-outline-danger { @apply btn border border-danger text-danger hover:bg-danger hover:text-white; }
+  .btn-ghost         { @apply btn border border-gray-300 text-gray-600 hover:bg-gray-100; }
+  .btn-blue          { @apply btn bg-info text-white hover:bg-blue-600; }
+  .btn-green         { @apply btn bg-success text-white hover:bg-emerald-600; }
+
+  .th { @apply px-4 py-3 text-right text-xs font-bold text-gray-500 whitespace-nowrap; }
+  .td { @apply px-4 py-3 text-sm text-gray-700 whitespace-nowrap; }
+
+  /* أزرار الأيقونات — أكبر على الموبايل للمس مريح */
+  .icon-btn {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm
+    transition hover:bg-gray-100;
+  }
+
+  .chip        { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold; }
+  .field-label { @apply mb-1.5 block text-sm font-bold text-gray-700; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-gray-400; }
+
+/* التاريخ في الـ Topbar */
+.date-display {
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+/* ===================================================
+   تحسينات الطباعة
+   =================================================== */
+@media print {
+  body { overflow: visible !important; }
+  .no-print { display: none !important; }
+}

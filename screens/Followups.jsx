@@ -5,7 +5,8 @@ import { seedFollowups, seedPatients } from "@/lib/data";
 import { fetchCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 import { openWhatsApp, fmtDate, todayISO } from "@/lib/utils";
 
-export default function Followups() {
+export default function Followups({ can }) {
+  const allowed = (permission) => typeof can !== "function" || can(permission);
   const [rows, setRows] = useState(seedFollowups);
   const [patients, setPatients] = useState(seedPatients);
   const [settings, setSettings] = useState({});
@@ -48,6 +49,7 @@ export default function Followups() {
   ];
 
   const markDone = async (id) => {
+    if (!allowed("followups.update")) return;
     const next = rows.map((r) => (r.id === id ? { ...r, status: "done" } : r));
     const updated = next.find((r) => r.id === id);
     if (updated) {
@@ -57,6 +59,7 @@ export default function Followups() {
   };
 
   const removeFollowup = async (r) => {
+    if (!allowed("followups.delete")) return;
     if (!window.confirm(`هل أنت متأكد من حذف تنبيه المراجعة للمريض "${pOf(r.patientId)?.name || ""}"؟`)) return;
     const result = await deleteSingleItem("followups", r.id);
     if (result !== null) setRows((current) => current.filter((x) => x.id !== r.id));
@@ -89,23 +92,23 @@ export default function Followups() {
                 <tr key={r.id} className="hover:bg-accent-soft/40">
                   <td className="td font-bold">{fmtDate(r.date)}</td>
                   <td className="td" dir="ltr">{r.time}</td>
-                  <td className="td font-bold text-gray-800">{pOf(r.patientId)?.name || "—"}</td>
-                  <td className="td" dir="ltr">{pOf(r.patientId)?.phone1 || "—"}</td>
+                  <td className="td font-bold text-gray-800">{allowed("patients.view") ? (pOf(r.patientId)?.name || "—") : "بيانات محمية"}</td>
+                  <td className="td" dir="ltr">{allowed("patients.view") ? (pOf(r.patientId)?.phone1 || "—") : "—"}</td>
                   <td className="td">{stBadge(effStatus(r))}</td>
                   <td className="td max-w-40 truncate text-gray-500">{r.notes || "—"}</td>
                   <td className="td">
                     <div className="flex gap-1">
-                      <button title="إرسال تذكير واتساب" className="icon-btn text-success hover:bg-success hover:text-white"
+                      {allowed("followups.send") && allowed("patients.view") && <button title="إرسال تذكير واتساب" className="icon-btn text-success hover:bg-success hover:text-white"
                         onClick={() => { setWa(r); setWaDate(r.date); setWaTime(r.time); }}>
                         <i className="fa-brands fa-whatsapp text-base" />
-                      </button>
-                      <button title="تحديد كمكتمل" className="icon-btn text-info hover:bg-info hover:text-white"
+                      </button>}
+                      {allowed("followups.update") && <button title="تحديد كمكتمل" className="icon-btn text-info hover:bg-info hover:text-white"
                         onClick={() => markDone(r.id)} disabled={r.status === "done"}>
                         <i className="fa-solid fa-check" />
-                      </button>
-                      <button title="حذف التنبيه" className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeFollowup(r)}>
+                      </button>}
+                      {allowed("followups.delete") && <button title="حذف التنبيه" className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeFollowup(r)}>
                         <i className="fa-solid fa-trash" />
-                      </button>
+                      </button>}
                     </div>
                   </td>
                 </tr>
@@ -115,7 +118,7 @@ export default function Followups() {
         </div>
       </Card>
 
-      {wa && (
+      {wa && allowed("followups.send") && allowed("patients.view") && (
         <Modal open onClose={() => setWa(null)} title="إرسال تذكير واتساب">
           <div className="space-y-4">
             <div className="rounded-lg bg-emerald-50 p-3 text-sm font-bold text-success">

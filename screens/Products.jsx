@@ -13,7 +13,8 @@ const toNum = (v) => {
   return Number.isFinite(n) ? Math.max(0, n) : 0;
 };
 
-export default function Products() {
+export default function Products({ can }) {
+  const allowed = (permission) => typeof can !== "function" || can(permission);
   const [list, setList] = useState(seedProducts);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function Products() {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!allowed(editing ? "products.update" : "products.create")) return;
     if (!f.name.trim()) return;
     const payload = {
       id: editing ? editing.id : Date.now(),
@@ -64,6 +66,7 @@ export default function Products() {
   };
 
   const removeProduct = async (product) => {
+    if (!allowed("products.delete")) return;
     if (!window.confirm(`هل أنت متأكد من حذف المنتج "${product.name}"؟ لا يمكن التراجع!`)) return;
     const result = await deleteSingleItem("products", product.id);
     if (result !== null) {
@@ -94,7 +97,7 @@ export default function Products() {
 
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-black text-primary">المنتجات والمخزون</h2>
-        <button onClick={openAdd} className="btn-accent"><i className="fa-solid fa-plus" /> إضافة منتج</button>
+        {allowed("products.create") && <button onClick={openAdd} className="btn-accent"><i className="fa-solid fa-plus" /> إضافة منتج</button>}
       </div>
 
       <Card>
@@ -120,8 +123,8 @@ export default function Products() {
                   <td className="td text-gray-500">{p.min}</td>
                   <td className="td">
                     <div className="flex gap-1">
-                      <button onClick={() => openEdit(p)} className="icon-btn text-info hover:bg-info hover:text-white"><i className="fa-solid fa-pen" /></button>
-                      <button className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeProduct(p)}><i className="fa-solid fa-trash" /></button>
+                      {allowed("products.update") && <button onClick={() => openEdit(p)} className="icon-btn text-info hover:bg-info hover:text-white"><i className="fa-solid fa-pen" /></button>}
+                      {allowed("products.delete") && <button className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeProduct(p)}><i className="fa-solid fa-trash" /></button>}
                     </div>
                   </td>
                 </tr>
@@ -131,7 +134,7 @@ export default function Products() {
         </div>
       </Card>
 
-      {open && (
+      {open && allowed(editing ? "products.update" : "products.create") && (
         <Modal open onClose={closeModal} title={editing ? "تعديل منتج" : "إضافة منتج جديد"}>
           <form className="space-y-4" onSubmit={submit}>
             <Field label="اسم المنتج" required><Input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>

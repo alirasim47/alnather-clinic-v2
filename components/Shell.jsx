@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import Dashboard from "@/screens/Dashboard";
@@ -12,59 +12,63 @@ import Products from "@/screens/Products";
 import Reports from "@/screens/Reports";
 import Users from "@/screens/Users";
 import Settings from "@/screens/Settings";
+import { canViewPage, hasPermission } from "@/lib/permissions";
 
 const TITLES = {
-  dashboard: "لوحة التحكم",
-  patients: "إدارة المرضى",
-  followups: "تنبيهات المراجعات",
-  examiners: "الفاحصون والكادر",
-  invoices: "الفواتير والمبيعات",
-  products: "المنتجات والمخزون",
-  reports: "التقارير",
-  users: "المستخدمون والصلاحيات",
-  settings: "الإعدادات",
+  dashboard: "لوحة التحكم", patients: "إدارة المرضى", followups: "تنبيهات المراجعات",
+  examiners: "الفاحصون والكادر", invoices: "الفواتير والمبيعات", products: "المنتجات والمخزون",
+  reports: "التقارير", users: "الموظفون والصلاحيات", settings: "الإعدادات",
 };
 
-export default function Shell({ onLogout }) {
+const PAGE_ORDER = Object.keys(TITLES);
+
+export default function Shell({ onLogout, currentUser }) {
   const [page, setPage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const can = (permissionId) => hasPermission(currentUser, permissionId);
+  const visiblePages = useMemo(() => PAGE_ORDER.filter((pageId) => canViewPage(currentUser, pageId)), [currentUser]);
 
   useEffect(() => {
     const saved = window.location.hash.replace(/^#\/?/, "");
-    if (TITLES[saved]) setPage(saved);
-  }, []);
+    const allowed = saved && canViewPage(currentUser, saved) ? saved : visiblePages[0] || "dashboard";
+    setPage(allowed);
+    window.history.replaceState(null, "", `#${allowed}`);
+  }, [currentUser, visiblePages]);
 
   const go = (next) => {
+    if (!canViewPage(currentUser, next)) {
+      window.alert("ليس لديك صلاحية لفتح هذا القسم. اطلب من مدير العيادة تعديل صلاحيات حسابك.");
+      return;
+    }
     setPage(next);
     setSidebarOpen(false);
     window.history.replaceState(null, "", `#${next}`);
   };
 
-  return (
-    // المغلف الرئيسي: overflow-hidden يمنع الـ sidebar من تمديد عرض الصفحة
-    <div className="relative flex h-[100dvh] overflow-hidden bg-gray-50" dir="rtl">
-      <Sidebar
-        page={page}
-        setPage={go}
-        onLogout={onLogout}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
+  const pageContent = () => {
+    if (!canViewPage(currentUser, page)) {
+      return <div className="m-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900">ليس لديك صلاحية لعرض هذا القسم.</div>;
+    }
+    switch (page) {
+      case "dashboard": return <Dashboard go={go} can={can} />;
+      case "patients": return <Patients can={can} />;
+      case "followups": return <Followups can={can} />;
+      case "examiners": return <Examiners can={can} />;
+      case "invoices": return <Invoices can={can} />;
+      case "products": return <Products can={can} />;
+      case "reports": return <Reports can={can} />;
+      case "users": return <Users currentUser={currentUser} />;
+      case "settings": return <Settings can={can} />;
+      default: return null;
+    }
+  };
 
-      {/* المنطقة الرئيسية تأخذ باقي العرض وتتمرر بشكل مستقل */}
+  return (
+    <div className="relative flex h-[100dvh] overflow-hidden bg-gray-50" dir="rtl">
+      <Sidebar page={page} setPage={go} onLogout={onLogout} open={sidebarOpen} onClose={() => setSidebarOpen(false)} currentUser={currentUser} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Topbar title={TITLES[page]} onMenu={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 pb-4">
-          {page === "dashboard" && <Dashboard go={go} />}
-          {page === "patients" && <Patients />}
-          {page === "followups" && <Followups />}
-          {page === "examiners" && <Examiners />}
-          {page === "invoices" && <Invoices />}
-          {page === "products" && <Products />}
-          {page === "reports" && <Reports />}
-          {page === "users" && <Users />}
-          {page === "settings" && <Settings />}
-        </main>
+        <Topbar title={TITLES[page] || "العيادة"} onMenu={() => setSidebarOpen(true)} user={currentUser} />
+        <main className="flex-1 overflow-y-auto overscroll-contain p-4 pb-4 sm:p-6">{pageContent()}</main>
       </div>
     </div>
   );

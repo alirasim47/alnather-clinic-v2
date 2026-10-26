@@ -6,7 +6,8 @@ import { fetchCollection, saveCollection, saveSingleItem, deleteSingleItem } fro
 import { fmtMoney, fmtDate, printPrescription, openWhatsApp, todayISO } from "@/lib/utils";
 import ExamForm from "@/components/ExamForm";
 
-export default function Patients() {
+export default function Patients({ can }) {
+  const allowed = (permission) => typeof can !== "function" || can(permission);
   const [patients, setPatients] = useState(seedPatients);
   const [exams, setExams] = useState(seedExams);
   const [examiners, setExaminers] = useState(seedExaminers);
@@ -50,6 +51,7 @@ export default function Patients() {
   );
 
   const savePatient = async (data) => {
+    if (!allowed("patients.create")) return;
     const nextId = patients.length ? Math.max(...patients.map((p) => p.id)) + 1 : 1;
     const item = { id: nextId, fileNo: `P-${1000 + nextId}`, lastVisit: "—", ...data };
     const result = await saveSingleItem("patients", item);
@@ -60,6 +62,7 @@ export default function Patients() {
   };
 
   const updatePatient = async (data) => {
+    if (!allowed("patients.update")) return;
     const payload = { ...editingPatient, ...data };
     const result = await saveSingleItem("patients", payload);
     if (result) {
@@ -69,6 +72,7 @@ export default function Patients() {
   };
 
   const removePatient = async (id) => {
+    if (!allowed("patients.delete")) return;
     if (window.confirm("هل أنت متأكد من حذف هذا المريض؟ سيتم حذف جميع فحوصاته.")) {
       const result = await deleteSingleItem("patients", id);
       if (result !== null) {
@@ -104,12 +108,12 @@ export default function Patients() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setEditingPatient(detailPatient)} className="btn-ghost">
+            {allowed("patients.update") && <button onClick={() => setEditingPatient(detailPatient)} className="btn-ghost">
               <i className="fa-solid fa-pen" /> تعديل بيانات المريض
-            </button>
-            <button onClick={() => setExamFor(detailPatient)} className="btn-accent">
+            </button>}
+            {allowed("exams.create") && <button onClick={() => setExamFor(detailPatient)} className="btn-accent">
               <i className="fa-solid fa-plus" /> فحص جديد
-            </button>
+            </button>}
             <button onClick={() => setFileOf(null)} className="btn-ghost">
               <i className="fa-solid fa-arrow-right" /> رجوع
             </button>
@@ -117,7 +121,7 @@ export default function Patients() {
         </div>
       </Card>
 
-      <Card>
+      {allowed("exams.view") && <Card>
         <div className="border-b border-gray-100 px-5 py-4">
           <h3 className="font-extrabold text-primary"><i className="fa-solid fa-clock-rotate-left ml-2 text-accent" />سجل الفحوصات السابقة</h3>
         </div>
@@ -140,11 +144,11 @@ export default function Patients() {
                   <td className="td">{e.reviewDate ? fmtDate(e.reviewDate) : "—"}</td>
                   <td className="td">
                     <div className="flex gap-1">
-                      <button title="معاينة الفحص" className="icon-btn text-purple-600 hover:bg-purple-100"
+                      {allowed("exams.view") && <button title="معاينة الفحص" className="icon-btn text-purple-600 hover:bg-purple-100"
                         onClick={() => setViewingExam(e)}>
                         <i className="fa-solid fa-eye" />
-                      </button>
-                      <button title="طباعة الوصفة" className="icon-btn text-primary hover:bg-primary hover:text-white"
+                      </button>}
+                      {allowed("exams.print") && <button title="طباعة الوصفة" className="icon-btn text-primary hover:bg-primary hover:text-white"
                         onClick={() => printPrescription({
                           patient: detailPatient,
                           exam: { date: fmtDate(e.date), examiner: examiners.find((x) => x.id === e.examinerId)?.name, pd: e.pd, vaOD: e.vaOD, vaOS: e.vaOS, lens: e.lensType || e.lens, refraction: e.refraction, notes: e.notes },
@@ -152,14 +156,15 @@ export default function Patients() {
                           clinic: { name: clinicName, phone: clinicPhone },
                         })}>
                         <i className="fa-solid fa-print" />
-                      </button>
-                      <button title="إرسال واتساب" className="icon-btn text-success hover:bg-success hover:text-white"
+                      </button>}
+                      {allowed("followups.send") && <button title="إرسال واتساب" className="icon-btn text-success hover:bg-success hover:text-white"
                         onClick={() => openWhatsApp({ phone: detailPatient.phone1, name: detailPatient.name, date: e.reviewDate || todayISO(), time: "10:00", clinic: clinicName })}>
                         <i className="fa-brands fa-whatsapp" />
-                      </button>
-                      <button title="تعديل" className="icon-btn text-info hover:bg-info hover:text-white" onClick={() => setEditingExam(e)}><i className="fa-solid fa-pen" /></button>
-                      <button title="حذف" className="icon-btn text-danger hover:bg-danger hover:text-white"
+                      </button>}
+                      {allowed("exams.update") && <button title="تعديل" className="icon-btn text-info hover:bg-info hover:text-white" onClick={() => setEditingExam(e)}><i className="fa-solid fa-pen" /></button>}
+                      {allowed("exams.delete") && <button title="حذف" className="icon-btn text-danger hover:bg-danger hover:text-white"
                         onClick={async () => {
+                          if (!allowed("exams.delete")) return;
                           if (!window.confirm("هل أنت متأكد من حذف هذا الفحص؟ لا يمكن التراجع!")) return;
                           const result = await deleteSingleItem("exams", e.id);
                           if (result !== null) {
@@ -167,7 +172,7 @@ export default function Patients() {
                           }
                         }}>
                         <i className="fa-solid fa-trash" />
-                      </button>
+                      </button>}
                     </div>
                   </td>
                 </tr>
@@ -175,7 +180,7 @@ export default function Patients() {
             </tbody>
           </table>
         </div>
-      </Card>
+      </Card>}
 
       {(examFor || editingExam) && (
         <ExamForm
@@ -187,6 +192,7 @@ export default function Patients() {
           }}
           onSave={async (exam) => {
             if (editingExam) {
+              if (!allowed("exams.update")) return;
               const payload = { ...editingExam, ...exam, id: editingExam.id, patientId: detailPatient.id };
               const result = await saveSingleItem("exams", payload);
               if (result) {
@@ -196,6 +202,7 @@ export default function Patients() {
               return;
             }
 
+            if (!allowed("exams.create")) return;
             const id = exams.length ? Math.max(...exams.map((e) => e.id)) + 1 : 1;
             const payload = { id, patientId: examFor.id, ...exam };
             const result = await saveSingleItem("exams", payload);
@@ -357,9 +364,9 @@ export default function Patients() {
                 <Input placeholder="بحث بالاسم أو رقم الجوال..." value={query} onChange={(e) => setQuery(e.target.value)} />
                 <i className="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
               </div>
-              <button onClick={() => setAddOpen(true)} className="btn-accent">
-                <i className="fa-solid fa-plus" /> إضافة مريض
-              </button>
+              {allowed("patients.create") && <button onClick={() => setAddOpen(true)} className="btn-accent">
+                <i className="fa-solid fa-plus" /> إضافة مريض جديد
+              </button>}
             </div>
           </div>
 
@@ -387,10 +394,10 @@ export default function Patients() {
                           <button title="عرض الملف" className="icon-btn text-primary hover:bg-primary hover:text-white" onClick={() => setFileOf(p.id)}>
                             <i className="fa-solid fa-folder-open" />
                           </button>
-                          <button title="تعديل" className="icon-btn text-info hover:bg-info hover:text-white" onClick={() => setEditingPatient(p)}><i className="fa-solid fa-pen" /></button>
-                          <button title="حذف" className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removePatient(p.id)}>
+                          {allowed("patients.update") && <button title="تعديل" className="icon-btn text-info hover:bg-info hover:text-white" onClick={() => setEditingPatient(p)}><i className="fa-solid fa-pen" /></button>}
+                          {allowed("patients.delete") && <button title="حذف" className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removePatient(p.id)}>
                             <i className="fa-solid fa-trash" />
-                          </button>
+                          </button>}
                         </div>
                       </td>
                     </tr>
@@ -402,8 +409,8 @@ export default function Patients() {
         </div>
       )}
 
-      {addOpen && <PatientFormModal onClose={() => setAddOpen(false)} onSave={savePatient} title="إضافة مريض جديد" />}
-      {editingPatient && (
+      {addOpen && allowed("patients.create") && <PatientFormModal onClose={() => setAddOpen(false)} onSave={savePatient} title="إضافة مريض جديد" />}
+      {editingPatient && allowed("patients.update") && (
         <PatientFormModal
           patient={editingPatient}
           onClose={() => setEditingPatient(null)}

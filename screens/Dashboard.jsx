@@ -6,7 +6,8 @@ import { seedExams, seedInvoices, seedPatients, seedProducts } from "@/lib/data"
 import { fetchCollection } from "@/lib/api";
 import { fmtMoney, fmtDate, todayISO } from "@/lib/utils";
 
-export default function Dashboard({ go }) {
+export default function Dashboard({ go, can }) {
+  const allowed = (permission) => typeof can !== "function" || can(permission);
   const [patients, setPatients] = useState(seedPatients);
   const [exams, setExams] = useState(seedExams);
   const [products, setProducts] = useState(seedProducts);
@@ -49,6 +50,13 @@ export default function Dashboard({ go }) {
 
   const stats = [
     {
+      label: "عدد المرضى",
+      value: patients.length,
+      icon: "fa-users",
+      bg: "bg-purple-100",
+      fg: "text-purple-600",
+    },
+    {
       label: "فحوصات اليوم",
       value: todayExams.length,
       icon: "fa-file-medical",
@@ -81,7 +89,12 @@ export default function Dashboard({ go }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((s) => (
+        {stats.filter((s) => {
+          if (s.label === "عدد المرضى") return allowed("patients.view");
+          if (s.label === "فحوصات اليوم") return allowed("exams.view");
+          if (s.label === "تنبيهات نقص المخزون") return allowed("products.view");
+          return allowed("invoices.view");
+        }).map((s) => (
           <Card
             key={s.label}
             className="flex items-center gap-4 p-5 transition hover:-translate-y-0.5 hover:shadow-lg"
@@ -102,12 +115,12 @@ export default function Dashboard({ go }) {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Card>
+        {allowed("exams.view") && allowed("patients.view") && <Card>
           <CardHeader
             icon={<i className="fa-solid fa-stethoscope" />}
             title="آخر الفحوصات"
             action={
-              <button
+              allowed("patients.view") && <button
                 onClick={() => go("patients")}
                 className="text-xs font-bold text-info hover:underline"
               >
@@ -159,14 +172,14 @@ export default function Dashboard({ go }) {
               </tbody>
             </table>
           </div>
-        </Card>
+        </Card>}
 
-        <Card>
+        {allowed("invoices.view") && allowed("patients.view") && <Card>
           <CardHeader
             icon={<i className="fa-solid fa-receipt" />}
             title="آخر الفواتير"
             action={
-              <button
+              allowed("invoices.view") && <button
                 onClick={() => go("invoices")}
                 className="text-xs font-bold text-info hover:underline"
               >
@@ -233,7 +246,7 @@ export default function Dashboard({ go }) {
               </tbody>
             </table>
           </div>
-        </Card>
+        </Card>}
       </div>
     </div>
   );

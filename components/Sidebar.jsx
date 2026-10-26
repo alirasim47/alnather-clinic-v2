@@ -2,6 +2,7 @@
 
 import React from "react";
 import ClinicLogo from "./ClinicLogo";
+import { canViewPage } from "@/lib/permissions";
 
 const NAV = [
   { id: "dashboard",  label: "الرئيسية",           icon: "fa-house" },
@@ -15,7 +16,7 @@ const NAV = [
   { id: "settings",   label: "الإعدادات",            icon: "fa-gear" },
 ];
 
-export default function Sidebar({ page, setPage, onLogout, open, onClose }) {
+export default function Sidebar({ page, setPage, onLogout, open, onClose, currentUser }) {
   return (
     <>
       {/* طبقة التعتيم خلف القائمة على الموبايل */}
@@ -57,7 +58,7 @@ export default function Sidebar({ page, setPage, onLogout, open, onClose }) {
 
         {/* عناصر التنقل */}
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3">
-          {NAV.map((item) => {
+          {NAV.filter((item) => canViewPage(currentUser, item.id)).map((item) => {
             const active = page === item.id;
             return (
               <button

@@ -5,7 +5,11 @@ import { seedPatients, seedExams, seedInvoices } from "@/lib/data";
 import { fetchCollection } from "@/lib/api";
 import { fmtMoney, fmtDate, todayISO } from "@/lib/utils";
 
-export default function Reports() {
+export default function Reports({ can }) {
+  const allowed = (permission) => typeof can !== "function" || can(permission);
+  const canInvoices = allowed("invoices.view");
+  const canPatientNames = allowed("patients.view");
+  const canExport = allowed("reports.export") && canInvoices;
   const [patients, setPatients] = useState(seedPatients);
   const [exams, setExams] = useState(seedExams);
   const [invoices, setInvoices] = useState(seedInvoices);
@@ -42,11 +46,12 @@ export default function Reports() {
   const totalRem = inv.reduce((s, i) => s + ((i.total || 0) - (i.paid || 0)), 0);
 
   const exportCsv = () => {
+    if (!canExport) return;
     const header = ["رقم الفاتورة", "التاريخ", "المريض", "الإجمالي", "المدفوع", "المتبقي"];
     const rows = inv.map((i) => [
       i.no,
       i.date,
-      patients.find((p) => p.id === i.patientId)?.name || "عميل نقدي",
+      canPatientNames ? (patients.find((p) => p.id === i.patientId)?.name || "عميل نقدي") : "بيانات محمية",
       i.total || 0,
       i.paid || 0,
       (i.total || 0) - (i.paid || 0),
@@ -67,12 +72,14 @@ export default function Reports() {
         <Field label="من تاريخ"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="إلى تاريخ"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
         <div className="flex flex-wrap items-center gap-3 lg:col-span-2 lg:justify-end">
-          <button onClick={() => window.print()} className="btn-ghost"><i className="fa-solid fa-print" /> طباعة</button>
-          <button onClick={() => window.print()} className="btn-blue"><i className="fa-solid fa-file-pdf" /> PDF</button>
-          <button onClick={exportCsv} className="btn-green"><i className="fa-solid fa-file-excel" /> Excel</button>
+          {canExport && <button onClick={() => window.print()} className="btn-ghost"><i className="fa-solid fa-print" /> طباعة</button>}
+          {canExport && <button onClick={() => window.print()} className="btn-blue"><i className="fa-solid fa-file-pdf" /> PDF</button>}
+          {canExport && <button onClick={exportCsv} className="btn-green"><i className="fa-solid fa-file-excel" /> Excel</button>}
         </div>
       </Card>
 
+      {!canInvoices && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">لا تملك صلاحية عرض بيانات الفواتير في التقارير.</div>}
+      {canInvoices && <>
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         <Card className="p-5 text-center">
           <div className="text-3xl font-black text-primary">{fmtMoney(totalRev)}</div>
@@ -108,7 +115,7 @@ export default function Reports() {
                 <tr key={i.id} className="hover:bg-accent-soft/40">
                   <td className="td font-bold">{i.no}</td>
                   <td className="td">{fmtDate(i.date)}</td>
-                  <td className="td">{patients.find((p) => p.id === i.patientId)?.name || "عميل نقدي"}</td>
+                  <td className="td">{canPatientNames ? (patients.find((p) => p.id === i.patientId)?.name || "عميل نقدي") : "بيانات محمية"}</td>
                   <td className="td">{fmtMoney(i.total)}</td>
                   <td className="td text-success">{fmtMoney(i.paid)}</td>
                   <td className="td text-danger">{fmtMoney((i.total || 0) - (i.paid || 0))}</td>
@@ -123,6 +130,7 @@ export default function Reports() {
           <span className="text-gray-600">المتبقي: <b className="text-danger">{fmtMoney(totalRem)}</b></span>
         </div>
       </Card>
+      </>}
     </div>
   );
 }

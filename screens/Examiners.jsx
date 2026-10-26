@@ -6,7 +6,8 @@ import { fetchCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 
 const defaultForm = { name: "", phone: "", role: "أخصائي بصريات", active: true };
 
-export default function Examiners() {
+export default function Examiners({ can }) {
+  const allowed = (permission) => typeof can !== "function" || can(permission);
   const [list, setList] = useState(seedExaminers);
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function Examiners() {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!allowed(editing ? "examiners.update" : "examiners.create")) return;
     const clean = { ...f, name: f.name.trim(), phone: f.phone.trim() };
     if (!clean.name) return;
 
@@ -42,6 +44,7 @@ export default function Examiners() {
   };
 
   const toggleActive = async (item, v) => {
+    if (!allowed("examiners.update")) return;
     const payload = { ...item, active: v };
     const result = await saveSingleItem("examiners", payload);
     if (result) {
@@ -50,6 +53,7 @@ export default function Examiners() {
   };
 
   const removeExaminer = async (item) => {
+    if (!allowed("examiners.delete")) return;
     if (!window.confirm(`هل أنت متأكد من حذف الفاحص "${item.name}"؟ لا يمكن التراجع!`)) return;
     const result = await deleteSingleItem("examiners", item.id);
     if (result !== null) setList((current) => current.filter((i) => i.id !== item.id));
@@ -63,7 +67,7 @@ export default function Examiners() {
             <i className="fa-solid fa-user-doctor text-accent" />
             <span>قائمة الفاحصين والكادر الطبي</span>
           </div>
-          <button onClick={openAdd} className="btn-accent"><i className="fa-solid fa-plus" /> إضافة فاحص</button>
+          {allowed("examiners.create") && <button onClick={openAdd} className="btn-accent"><i className="fa-solid fa-plus" /> إضافة فاحص</button>}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -79,16 +83,16 @@ export default function Examiners() {
                   <td className="td"><Badge color="blue">{x.role}</Badge></td>
                   <td className="td">
                     <div className="flex items-center gap-2">
-                      <Toggle on={x.active} onChange={(v) => toggleActive(x, v)} />
+                      <Toggle on={x.active} disabled={!allowed("examiners.update")} onChange={(v) => toggleActive(x, v)} />
                       <span className={`text-xs font-bold ${x.active ? "text-success" : "text-gray-400"}`}>{x.active ? "نشط" : "موقوف"}</span>
                     </div>
                   </td>
                   <td className="td">
                     <div className="flex gap-1">
-                      <button onClick={() => openEdit(x)} className="icon-btn text-info hover:bg-info hover:text-white"><i className="fa-solid fa-pen" /></button>
-                      <button className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeExaminer(x)}>
+                      {allowed("examiners.update") && <button onClick={() => openEdit(x)} className="icon-btn text-info hover:bg-info hover:text-white"><i className="fa-solid fa-pen" /></button>}
+                      {allowed("examiners.delete") && <button className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeExaminer(x)}>
                         <i className="fa-solid fa-trash" />
-                      </button>
+                      </button>}
                     </div>
                   </td>
                 </tr>
@@ -98,7 +102,7 @@ export default function Examiners() {
         </div>
       </Card>
 
-      {open && (
+      {open && allowed(editing ? "examiners.update" : "examiners.create") && (
         <Modal open onClose={close} title={editing ? "تعديل بيانات الفاحص" : "إضافة فاحص جديد"}>
           <form className="space-y-4" onSubmit={submit}>
             <Field label="اسم الفاحص" required><Input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>

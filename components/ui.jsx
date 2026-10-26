@@ -153,14 +153,15 @@ export const Select = ({ children, className = "", ...props }) => (
   </select>
 );
 
-export const Toggle = ({ on = false, onChange }) => (
+export const Toggle = ({ on = false, onChange, disabled = false }) => (
   <button
     type="button"
     role="switch"
     aria-checked={Boolean(on)}
+    disabled={disabled}
     onClick={() => onChange?.(!on)}
     className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition
-      ${on ? "bg-emerald-500" : "bg-gray-300"}`}
+      ${on ? "bg-emerald-500" : "bg-gray-300"} disabled:cursor-not-allowed disabled:opacity-40`}
   >
     <span
       className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform

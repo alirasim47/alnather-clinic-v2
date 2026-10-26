@@ -6,7 +6,8 @@ import { readStorage, STORAGE_KEYS, writeStorage } from "@/lib/storage";
 import { fetchCollection, saveCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 import { fmtMoney, fmtDate, todayISO } from "@/lib/utils";
 
-export default function Invoices() {
+export default function Invoices({ can }) {
+  const allowed = (permission) => typeof can !== "function" || can(permission);
   const [rows, setRows] = useState(() => readStorage(STORAGE_KEYS.invoices, seedInvoices));
   const [patients, setPatients] = useState(seedPatients);
   const [settings, setSettings] = useState({});
@@ -39,6 +40,7 @@ export default function Invoices() {
   const clinicName = settings.clinicName || "عيادة العلي";
 
   const saveInvoice = async (invoice) => {
+    if (!allowed("invoices.create")) return;
     const maxNo = rows.reduce((m, r) => Math.max(m, Number(String(r.no || "").replace(/\D/g, "")) || 0), 2000);
     const final = { ...invoice, no: `INV-${maxNo + 1}` };
     const saved = await saveSingleItem("invoices", final);
@@ -48,6 +50,7 @@ export default function Invoices() {
   };
 
   const removeInvoice = async (id) => {
+    if (!allowed("invoices.delete")) return;
     const target = rows.find((r) => r.id === id);
     if (!window.confirm(`هل أنت متأكد من حذف الفاتورة ${target?.no || ""}؟ لا يمكن التراجع!`)) return;
     if (target?.items?.length) {
@@ -67,6 +70,7 @@ export default function Invoices() {
   };
 
   const clearInvoices = () => {
+    if (!allowed("invoices.delete")) return;
     if (!window.confirm("تحذير خطير: سيتم حذف جميع الفواتير نهائياً! هل أنت متأكد 100%؟")) return;
     setRows(() => {
       writeStorage(STORAGE_KEYS.invoices, []);
@@ -99,12 +103,12 @@ export default function Invoices() {
           </Select>
         </Field>
         <div className="flex flex-wrap items-center gap-2 lg:col-span-4 lg:justify-end">
-          {rows.length > 0 && (
+          {allowed("invoices.delete") && rows.length > 0 && (
             <button onClick={clearInvoices} className="btn-outline-danger">
               <i className="fa-solid fa-trash" /> حذف الفواتير
             </button>
           )}
-          <button onClick={() => setPos(true)} className="btn-accent"><i className="fa-solid fa-plus" /> فاتورة جديدة (POS)</button>
+          {allowed("invoices.create") && <button onClick={() => setPos(true)} className="btn-accent"><i className="fa-solid fa-plus" /> فاتورة جديدة (POS)</button>}
         </div>
       </Card>
 
@@ -131,16 +135,16 @@ export default function Invoices() {
                     <td className="td">{payAr[i.method]}</td>
                     <td className="td">
                       <div className="flex gap-1">
-                        <button title="طباعة" className="icon-btn text-primary hover:bg-primary hover:text-white"
+                        {allowed("invoices.print") && <button title="طباعة" className="icon-btn text-primary hover:bg-primary hover:text-white"
                           onClick={() => printInvoice({ invoice: i, patientName: pNameOf(i.patientId), clinicName })}>
                           <i className="fa-solid fa-print" />
-                        </button>
+                        </button>}
                         <button title="عرض" className="icon-btn text-info hover:bg-info hover:text-white" onClick={() => setViewing(i)}>
                           <i className="fa-solid fa-eye" />
                         </button>
-                        <button title="حذف الفاتورة" className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeInvoice(i.id)}>
+                        {allowed("invoices.delete") && <button title="حذف الفاتورة" className="icon-btn text-danger hover:bg-danger hover:text-white" onClick={() => removeInvoice(i.id)}>
                           <i className="fa-solid fa-trash" />
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -151,7 +155,7 @@ export default function Invoices() {
         </div>
       </Card>
 
-      {pos && <PosModal onClose={() => setPos(false)} onSave={saveInvoice} />}
+      {pos && allowed("invoices.create") && <PosModal onClose={() => setPos(false)} onSave={saveInvoice} />}
 
       {viewing && (
         <Modal open onClose={() => setViewing(null)} title={`تفاصيل الفاتورة ${viewing.no}`}>
@@ -186,9 +190,9 @@ export default function Invoices() {
               <span>المتبقي: <b className="text-red-300">{fmtMoney(Math.max(0, (viewing.total || 0) - (viewing.paid || 0)))}</b></span>
             </div>
             <div className="flex flex-wrap justify-end gap-3">
-              <button className="btn-ghost" onClick={() => printInvoice({ invoice: viewing, patientName: pNameOf(viewing.patientId), clinicName })}>
+              {allowed("invoices.print") && <button className="btn-ghost" onClick={() => printInvoice({ invoice: viewing, patientName: pNameOf(viewing.patientId), clinicName })}>
                 <i className="fa-solid fa-print" /> طباعة
-              </button>
+              </button>}
               <button className="btn-accent" onClick={() => setViewing(null)}>إغلاق</button>
             </div>
           </div>

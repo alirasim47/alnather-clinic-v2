@@ -1,18 +1,17 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { Card, Toggle, Badge, Modal, Field, Input, Select, EmptyRow } from "@/components/ui";
-import { seedExaminers } from "@/lib/data";
 import { fetchCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 
 const defaultForm = { name: "", phone: "", role: "أخصائي بصريات", active: true };
 
 export default function Examiners({ can }) {
   const allowed = (permission) => typeof can !== "function" || can(permission);
-  const [list, setList] = useState(seedExaminers);
+  const [list, setList] = useState([]);
 
   useEffect(() => {
     let ignore = false;
-    fetchCollection("examiners", seedExaminers).then((rows) => {
+    fetchCollection("examiners").then((rows) => {
       if (!ignore) setList(rows);
     });
     return () => { ignore = true; };

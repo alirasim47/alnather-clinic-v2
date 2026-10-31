@@ -1,155 +1,176 @@
--- ============================================================
--- نظام إدارة عيادات فحص النظر والبصريات — "عيادة العلي"
--- Optometry & Eye Clinic Management System — Schema
--- ============================================================
-
-CREATE TYPE user_role       AS ENUM ('admin','accountant','receptionist','examiner');
-CREATE TYPE gender          AS ENUM ('male','female');
-CREATE TYPE rx_section      AS ENUM ('distance','near');
-CREATE TYPE eye_side        AS ENUM ('OD','OS');
-CREATE TYPE pay_method      AS ENUM ('cash','card','installments','transfer');
-CREATE TYPE pay_status      AS ENUM ('paid','partial','unpaid');
-CREATE TYPE followup_status AS ENUM ('pending','done','overdue');
-CREATE TYPE product_cat     AS ENUM ('lenses','frames','medical_glasses','accessories','other');
-
-CREATE TABLE users (
-    id            BIGSERIAL PRIMARY KEY,
-    full_name     TEXT        NOT NULL,
-    username      TEXT        NOT NULL UNIQUE,
-    phone         TEXT        UNIQUE,
-    password_hash TEXT        NOT NULL,
-    role          user_role   NOT NULL DEFAULT 'receptionist',
-    permissions   JSONB       NOT NULL DEFAULT '{}'::jsonb,
-    avatar_url    TEXT,
-    is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS clinics (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE examiners (
-    id         BIGSERIAL PRIMARY KEY,
-    name       TEXT    NOT NULL,
-    phone      TEXT,
-    job_title  TEXT    NOT NULL DEFAULT 'أخصائي بصريات',
-    is_active  BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS branches (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  code TEXT NOT NULL,
+  phone TEXT,
+  address TEXT,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (clinic_id, code)
+);
+CREATE INDEX IF NOT EXISTS branches_by_clinic ON branches(clinic_id, active, name);
+
+CREATE TABLE IF NOT EXISTS app_users (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  username TEXT NOT NULL,
+  username_normalized TEXT NOT NULL,
+  phone TEXT,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'receptionist',
+  permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  failed_login_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TIMESTAMPTZ,
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (clinic_id, username_normalized)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS app_users_phone_by_clinic
+  ON app_users(clinic_id, regexp_replace(coalesce(phone, ''), '[^0-9+]', '', 'g'))
+  WHERE phone IS NOT NULL AND phone <> '';
+CREATE INDEX IF NOT EXISTS app_users_by_branch ON app_users(clinic_id, branch_id, active);
+
+CREATE TABLE IF NOT EXISTS app_sessions (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS app_sessions_by_user ON app_sessions(user_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+  bucket_hash CHAR(64) PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  window_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  blocked_until TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE patients (
-    id          BIGSERIAL PRIMARY KEY,
-    file_number TEXT    NOT NULL UNIQUE,
-    full_name   TEXT    NOT NULL,
-    phone1      TEXT,
-    phone2      TEXT,
-    gender      gender  NOT NULL DEFAULT 'male',
-    birth_date  DATE,
-    address     TEXT,
-    notes       TEXT,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS clinic_records (
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  collection TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  branch_id TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (clinic_id, collection, record_id)
 );
-CREATE INDEX idx_patients_name  ON patients (full_name);
-CREATE INDEX idx_patients_phone ON patients (phone1);
+CREATE INDEX IF NOT EXISTS clinic_records_collection ON clinic_records(clinic_id, collection, updated_at DESC);
+CREATE INDEX IF NOT EXISTS clinic_records_branch ON clinic_records(clinic_id, collection, branch_id, updated_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS clinic_products_barcode
+  ON clinic_records(clinic_id, lower(data->>'barcode'))
+  WHERE collection = 'products' AND coalesce(data->>'barcode', '') <> '' AND deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS clinic_invoices_number
+  ON clinic_records(clinic_id, lower(data->>'no'))
+  WHERE collection = 'invoices' AND coalesce(data->>'no', '') <> '' AND deleted_at IS NULL;
 
-CREATE TABLE exams (
-    id            BIGSERIAL PRIMARY KEY,
-    patient_id    BIGINT  NOT NULL REFERENCES patients(id)  ON DELETE CASCADE,
-    examiner_id   BIGINT  REFERENCES examiners(id)          ON DELETE SET NULL,
-    exam_date     DATE    NOT NULL DEFAULT CURRENT_DATE,
-    price         NUMERIC(12,2) NOT NULL DEFAULT 0,
-    pd            NUMERIC(5,1),
-    va_od         TEXT,
-    va_os         TEXT,
-    refraction    TEXT,
-    lens_type     TEXT,
-    review_date   DATE,
-    notes         TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS inventory_batches (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  product_id TEXT NOT NULL,
+  received_qty NUMERIC(12,2) NOT NULL CHECK (received_qty >= 0),
+  remaining_qty NUMERIC(12,2) NOT NULL CHECK (remaining_qty >= 0),
+  reserved_qty NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (reserved_qty >= 0),
+  unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  source_type TEXT NOT NULL DEFAULT 'opening',
+  source_id TEXT,
+  created_by TEXT REFERENCES app_users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (remaining_qty <= received_qty),
+  CHECK (reserved_qty <= remaining_qty)
 );
-CREATE INDEX idx_exams_patient ON exams (patient_id, exam_date DESC);
+CREATE INDEX IF NOT EXISTS inventory_batches_fifo ON inventory_batches(clinic_id, branch_id, product_id, received_at, id)
+  WHERE remaining_qty > 0;
 
-CREATE TABLE prescriptions (
-    id       BIGSERIAL PRIMARY KEY,
-    exam_id  BIGINT     NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
-    section  rx_section NOT NULL,
-    eye      eye_side   NOT NULL,
-    sph      NUMERIC(6,2),
-    cyl      NUMERIC(6,2),
-    axis     INTEGER CHECK (axis BETWEEN 0 AND 180),
-    UNIQUE (exam_id, section, eye)
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  product_id TEXT NOT NULL,
+  batch_id TEXT REFERENCES inventory_batches(id) ON DELETE SET NULL,
+  movement_type TEXT NOT NULL CHECK (movement_type IN ('opening','purchase','sale','return','adjustment','transfer_out','transfer_in')),
+  quantity_delta NUMERIC(12,2) NOT NULL,
+  unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+  reference_type TEXT,
+  reference_id TEXT,
+  notes TEXT,
+  actor_id TEXT REFERENCES app_users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS stock_movements_history ON stock_movements(clinic_id, branch_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS stock_movements_product ON stock_movements(clinic_id, product_id, created_at DESC);
 
-CREATE TABLE products (
-    id             BIGSERIAL PRIMARY KEY,
-    name           TEXT        NOT NULL,
-    barcode        TEXT UNIQUE,
-    category       product_cat NOT NULL DEFAULT 'other',
-    purchase_price NUMERIC(12,2) NOT NULL DEFAULT 0,
-    selling_price  NUMERIC(12,2) NOT NULL DEFAULT 0,
-    quantity       INTEGER       NOT NULL DEFAULT 0,
-    min_stock      INTEGER       NOT NULL DEFAULT 5,
-    notes          TEXT,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS branch_transfers (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  from_branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  to_branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected','cancelled')),
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  notes TEXT,
+  created_by TEXT REFERENCES app_users(id) ON DELETE SET NULL,
+  resolved_by TEXT REFERENCES app_users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
 );
-CREATE INDEX idx_products_low ON products (quantity) WHERE quantity <= min_stock;
+CREATE INDEX IF NOT EXISTS branch_transfers_by_clinic ON branch_transfers(clinic_id, status, created_at DESC);
 
-CREATE TABLE invoices (
-    id             BIGSERIAL PRIMARY KEY,
-    invoice_no     TEXT        NOT NULL UNIQUE,
-    patient_id     BIGINT      REFERENCES patients(id) ON DELETE SET NULL,
-    exam_id        BIGINT      REFERENCES exams(id)    ON DELETE SET NULL,
-    issue_date     DATE        NOT NULL DEFAULT CURRENT_DATE,
-    subtotal       NUMERIC(12,2) NOT NULL DEFAULT 0,
-    discount       NUMERIC(12,2) NOT NULL DEFAULT 0,
-    total          NUMERIC(12,2) NOT NULL DEFAULT 0,
-    paid           NUMERIC(12,2) NOT NULL DEFAULT 0,
-    remaining      NUMERIC(12,2) GENERATED ALWAYS AS (total - paid) STORED,
-    payment_method pay_method  NOT NULL DEFAULT 'cash',
-    payment_status pay_status  NOT NULL DEFAULT 'unpaid',
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE invoice_items (
-    id          BIGSERIAL PRIMARY KEY,
-    invoice_id  BIGINT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
-    product_id  BIGINT REFERENCES products(id) ON DELETE SET NULL,
-    description TEXT   NOT NULL,
-    quantity    INTEGER NOT NULL DEFAULT 1,
-    unit_price  NUMERIC(12,2) NOT NULL DEFAULT 0,
-    subtotal    NUMERIC(12,2) GENERATED ALWAYS AS (quantity * unit_price) STORED
+CREATE TABLE IF NOT EXISTS invoice_counters (
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  year INTEGER NOT NULL,
+  current_value BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (clinic_id, branch_id, year)
 );
 
-CREATE TABLE followups (
-    id         BIGSERIAL PRIMARY KEY,
-    patient_id BIGINT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-    exam_id    BIGINT REFERENCES exams(id) ON DELETE SET NULL,
-    due_date   DATE   NOT NULL,
-    due_time   TIME,
-    status     followup_status NOT NULL DEFAULT 'pending',
-    notes      TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS audit_events (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  actor_id TEXT REFERENCES app_users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  collection TEXT,
+  record_id TEXT,
+  branch_id TEXT,
+  summary TEXT NOT NULL DEFAULT '',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_followups_due ON followups (due_date, status);
+CREATE INDEX IF NOT EXISTS audit_events_by_clinic ON audit_events(clinic_id, created_at DESC);
 
-CREATE TABLE whatsapp_templates (
-    id   BIGSERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    body TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS invoice_payments (
+  id TEXT PRIMARY KEY,
+  clinic_id TEXT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL REFERENCES branches(id) ON DELETE RESTRICT,
+  invoice_id TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+  method TEXT NOT NULL CHECK (method IN ('cash','card','transfer','installments')),
+  reference TEXT,
+  notes TEXT,
+  paid_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by TEXT REFERENCES app_users(id) ON DELETE SET NULL
 );
-
-CREATE TABLE clinic_settings (
-    id           SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-    clinic_name  TEXT NOT NULL DEFAULT 'عيادة العلي',
-    phone1       TEXT,
-    phone2       TEXT,
-    footer_text  TEXT,
-    primary_color TEXT NOT NULL DEFAULT '#2c1b3d',
-    logo_url     TEXT,
-    wa_country_code TEXT NOT NULL DEFAULT '964'
-);
-
-CREATE OR REPLACE FUNCTION touch_updated_at() RETURNS trigger AS $$
-BEGIN NEW.updated_at = now(); RETURN NEW; END; $$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_patients_touch BEFORE UPDATE ON patients FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
-CREATE TRIGGER trg_users_touch    BEFORE UPDATE ON users    FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+CREATE INDEX IF NOT EXISTS invoice_payments_by_invoice
+  ON invoice_payments(clinic_id, invoice_id, paid_at ASC, id);
+CREATE INDEX IF NOT EXISTS invoice_payments_by_branch
+  ON invoice_payments(clinic_id, branch_id, paid_at DESC);

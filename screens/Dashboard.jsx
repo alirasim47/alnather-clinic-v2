@@ -2,31 +2,30 @@
 
 import React, { useEffect, useState } from "react";
 import { Card, CardHeader, Badge } from "@/components/ui";
-import { seedExams, seedInvoices, seedPatients, seedProducts } from "@/lib/data";
 import { fetchCollection } from "@/lib/api";
 import { fmtMoney, fmtDate, todayISO } from "@/lib/utils";
 
 export default function Dashboard({ go, can }) {
   const allowed = (permission) => typeof can !== "function" || can(permission);
-  const [patients, setPatients] = useState(seedPatients);
-  const [exams, setExams] = useState(seedExams);
-  const [products, setProducts] = useState(seedProducts);
-  const [invoices, setInvoices] = useState(seedInvoices);
+  const [patients, setPatients] = useState([]);
+  const [exams, setExams] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [invoices, setInvoices] = useState([]);
 
   useEffect(() => {
     let ignore = false;
     const load = async () => {
       const [nextPatients, nextExams, nextProducts, nextInvoices] = await Promise.all([
-        fetchCollection("patients", seedPatients),
-        fetchCollection("exams", seedExams),
-        fetchCollection("products", seedProducts),
-        fetchCollection("invoices", seedInvoices),
+        fetchCollection("patients"),
+        fetchCollection("exams"),
+        fetchCollection("products"),
+        fetchCollection("invoices"),
       ]);
       if (!ignore) {
-        setPatients(Array.isArray(nextPatients) ? nextPatients : seedPatients);
-        setExams(Array.isArray(nextExams) ? nextExams : seedExams);
-        setProducts(Array.isArray(nextProducts) ? nextProducts : seedProducts);
-        setInvoices(Array.isArray(nextInvoices) ? nextInvoices : seedInvoices);
+        setPatients(Array.isArray(nextPatients) ? nextPatients : []);
+        setExams(Array.isArray(nextExams) ? nextExams : []);
+        setProducts(Array.isArray(nextProducts) ? nextProducts : []);
+        setInvoices(Array.isArray(nextInvoices) ? nextInvoices : []);
       }
     };
     load();
@@ -38,7 +37,7 @@ export default function Dashboard({ go, can }) {
     };
   }, []);
 
-  const pName = (id) => patients.find((p) => p.id === id)?.name || "—";
+  const pName = (id) => patients.find((p) => String(p.id) === String(id))?.name || "—";
 
   const today = todayISO();
   const todayExams = exams.filter((e) => e.date === today);

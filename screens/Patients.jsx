@@ -1,31 +1,30 @@
 "use client";
 import React, { useState, useMemo, useEffect } from "react";
 import { Card, Modal, Field, Input, Badge, EmptyRow } from "@/components/ui";
-import { seedPatients, seedExams, seedExaminers } from "@/lib/data";
 import { fetchCollection, saveCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 import { fmtMoney, fmtDate, printPrescription, openWhatsApp, todayISO } from "@/lib/utils";
 import ExamForm from "@/components/ExamForm";
 
 export default function Patients({ can }) {
   const allowed = (permission) => typeof can !== "function" || can(permission);
-  const [patients, setPatients] = useState(seedPatients);
-  const [exams, setExams] = useState(seedExams);
-  const [examiners, setExaminers] = useState(seedExaminers);
+  const [patients, setPatients] = useState([]);
+  const [exams, setExams] = useState([]);
+  const [examiners, setExaminers] = useState([]);
   const [settings, setSettings] = useState({});
 
   useEffect(() => {
     let ignore = false;
     const load = async () => {
       const [loadedPatients, loadedExams, loadedExaminers, loadedSettings] = await Promise.all([
-        fetchCollection("patients", seedPatients),
-        fetchCollection("exams", seedExams),
-        fetchCollection("examiners", seedExaminers),
+        fetchCollection("patients"),
+        fetchCollection("exams"),
+        fetchCollection("examiners"),
         fetchCollection("settings", {}),
       ]);
       if (!ignore) {
         setPatients(loadedPatients);
         setExams(loadedExams);
-        setExaminers(Array.isArray(loadedExaminers) ? loadedExaminers : seedExaminers);
+        setExaminers(Array.isArray(loadedExaminers) ? loadedExaminers : []);
         setSettings(loadedSettings && typeof loadedSettings === "object" ? loadedSettings : {});
       }
     };
@@ -85,7 +84,7 @@ export default function Patients({ can }) {
 
   const detailPatient = fileOf ? patients.find((p) => p.id === fileOf) : null;
   const detailExams = detailPatient ? exams.filter((e) => e.patientId === detailPatient.id) : [];
-  const clinicName = settings.clinicName || "عيادة العلي";
+  const clinicName = settings.clinicName || "عيادة الناظر";
   const clinicPhone = settings.phone1 || "";
 
   const detailView = detailPatient ? (
@@ -225,7 +224,7 @@ export default function Patients({ can }) {
             {/* Header / رأس المعاينة */}
             <div className="flex justify-between items-end border-b-[3px] border-[#2c1b3d] pb-3 mb-6">
               <span className="text-gray-400 font-bold text-sm">وصفة فحص نظر</span>
-              <h2 className="text-2xl font-black text-[#2c1b3d]">{clinicName || "عيادة العلي"}</h2>
+              <h2 className="text-2xl font-black text-[#2c1b3d]">{clinicName || "عيادة الناظر"}</h2>
             </div>
 
             {/* Info Cards / بيانات المريض والفحص */}
@@ -342,7 +341,7 @@ export default function Patients({ can }) {
 
             {/* Footer */}
             <div className="border-t border-dotted border-gray-300 mt-8 pt-4 text-center text-xs text-gray-400">
-              تم إصدار هذه الوصفة إلكترونياً بواسطة نظام عيادة العلي لإدارة فحص النظر والبصريات
+              تم إصدار هذه الوصفة إلكترونياً بواسطة نظام عيادة الناظر لإدارة فحص النظر والبصريات
             </div>
             
             <div className="mt-6 flex justify-end pt-2 border-t border-gray-100 no-print">

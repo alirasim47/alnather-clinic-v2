@@ -2,8 +2,6 @@
 import React, { useEffect, useReducer } from "react";
 import { Modal, Field, Input, Select } from "@/components/ui";
 // Input يعالج type="date" تلقائياً: dir=ltr + lang=en-GB → عرض dd/mm/yyyy على كل الأجهزة
-import { seedExaminers } from "@/lib/data";
-import { readStorage, STORAGE_KEYS, DEFAULT_EXAMINER } from "@/lib/storage";
 import { fetchCollection } from "@/lib/api";
 import { todayISO } from "@/lib/utils";
 
@@ -110,11 +108,7 @@ function RxSection({ title, icon, section, state, dispatch, tone }) {
 
 export default function ExamForm({ patient, exam = null, onClose, onSave }) {
   const [state, dispatch] = useReducer(reducer, exam, makeInitialState);
-  const [examiners, setExaminers] = React.useState(() => {
-    if (typeof window === "undefined") return seedExaminers;
-    const saved = readStorage(STORAGE_KEYS.examiners, seedExaminers);
-    return Array.isArray(saved) && saved.length ? saved : [DEFAULT_EXAMINER];
-  });
+  const [examiners, setExaminers] = React.useState([]);
   const set = (field) => (e) => dispatch({ type: "set", field, value: e.target.value });
 
   useEffect(() => {
@@ -123,8 +117,8 @@ export default function ExamForm({ patient, exam = null, onClose, onSave }) {
 
   useEffect(() => {
     let ignore = false;
-    fetchCollection("examiners", seedExaminers).then((next) => {
-      const list = Array.isArray(next) && next.length ? next : [DEFAULT_EXAMINER];
+    fetchCollection("examiners", []).then((next) => {
+      const list = Array.isArray(next) ? next : [];
       if (ignore) return;
       setExaminers(list);
       if (!state.examinerId && list.length) {
@@ -135,16 +129,14 @@ export default function ExamForm({ patient, exam = null, onClose, onSave }) {
   }, []);
 
   const submit = () => {
-    const fallbackExaminerId = examiners.length ? examiners[0].id : DEFAULT_EXAMINER.id;
-    const examinerId = state.examinerId ? Number(state.examinerId) : Number(fallbackExaminerId);
-    if (!examinerId && examinerId !== 0) return;
+    const examinerId = state.examinerId || (examiners[0]?.id ? String(examiners[0].id) : "");
+    if (!examinerId) { window.alert("أضف فاحصًا من شاشة الكادر قبل حفظ الفحص."); return; }
     onSave({
       date: state.date, price: Number(state.price) || 0,
       examinerId, lensType: state.lensType,
       reviewDate: state.reviewDate, notes: state.notes,
       pd: state.pd, vaOD: state.vaOD, vaOS: state.vaOS, refraction: state.refraction,
       rx: { distance: state.distance, near: state.near },
-      invoiceNo: `INV-${Math.floor(2000 + Math.random() * 999)}`,
     });
   };
 
@@ -176,7 +168,7 @@ export default function ExamForm({ patient, exam = null, onClose, onSave }) {
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field label="الفاحص" required>
-            <Select value={state.examinerId || (examiners[0]?.id ?? "")} onChange={set("examinerId")}>
+            <Select required value={state.examinerId || (examiners[0]?.id ?? "")} onChange={set("examinerId")}>
               <option value="">— اختر الفاحص —</option>
               {examiners.filter((x) => x.active !== false).map((x) => (
                 <option key={x.id} value={x.id}>{x.name} — {x.role || "فاحص"}</option>
@@ -205,7 +197,7 @@ export default function ExamForm({ patient, exam = null, onClose, onSave }) {
           </button>
           <div className="flex gap-3">
             <button onClick={onClose} className="btn-outline-danger">إلغاء</button>
-            <button onClick={submit} className="btn-accent"><i className="fa-solid fa-floppy-disk" /> حفظ الفحص</button>
+            <button onClick={submit} disabled={!examiners.some((item) => item.active !== false)} className="btn-accent disabled:cursor-not-allowed disabled:opacity-50"><i className="fa-solid fa-floppy-disk" /> حفظ الفحص</button>
           </div>
         </div>
       </div>

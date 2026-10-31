@@ -1,18 +1,18 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { Badge, Card, EmptyRow, Field, Input, Modal, Select, Toggle } from "@/components/ui";
-import { seedUsers, roleAr } from "@/lib/data";
+import { roleAr } from "@/lib/data";
 import { deleteSingleItem, fetchCollection, saveSingleItem } from "@/lib/api";
-import { hashPassword } from "@/lib/passwords";
 import { normalizePermissions, PERMISSION_GROUPS, permissionsForRole } from "@/lib/permissions";
 
 const EMPTY_FORM = {
-  name: "", username: "", phone: "", role: "receptionist", active: true,
+  name: "", username: "", phone: "", branchId: "", role: "receptionist", active: true,
   password: "", permissions: permissionsForRole("receptionist"),
 };
 
 export default function Users({ currentUser }) {
-  const [list, setList] = useState(seedUsers);
+  const [list, setList] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -21,7 +21,9 @@ export default function Users({ currentUser }) {
 
   useEffect(() => {
     let ignore = false;
-    fetchCollection("users", seedUsers).then((rows) => { if (!ignore) setList(rows); });
+    Promise.all([fetchCollection("users"), fetchCollection("branches", [])]).then(([rows, branchRows]) => {
+      if (!ignore) { setList(rows); setBranches(Array.isArray(branchRows) ? branchRows : []); }
+    });
     return () => { ignore = true; };
   }, []);
 
@@ -38,6 +40,7 @@ export default function Users({ currentUser }) {
     setError("");
     setForm({
       name: user.name || "", username: user.username || "", phone: user.phone || "",
+      branchId: user.branchId || "",
       role: user.role || "receptionist", active: user.active !== false, password: "",
       permissions: normalizePermissions(user),
     });
@@ -61,8 +64,8 @@ export default function Users({ currentUser }) {
       return;
     }
     if (!cleaned.name || !cleaned.username) { setError("أدخل الاسم واسم المستخدم."); return; }
-    if (!editing && cleaned.password.length < 8) { setError("كلمة المرور مطلوبة ويجب ألا تقل عن 8 أحرف."); return; }
-    if (cleaned.password && cleaned.password.length < 8) { setError("يجب ألا تقل كلمة المرور عن 8 أحرف."); return; }
+    if (!editing && cleaned.password.length < 12) { setError("كلمة المرور مطلوبة ويجب ألا تقل عن 12 حرفًا."); return; }
+    if (cleaned.password && cleaned.password.length < 12) { setError("يجب ألا تقل كلمة المرور عن 12 حرفًا."); return; }
 
     const duplicate = list.find((user) =>
       user.id !== (editing?.id ?? null) && user.username?.toLowerCase() === cleaned.username
@@ -77,22 +80,23 @@ export default function Users({ currentUser }) {
     try {
       const payload = {
         ...(editing || {}),
-        id: editing?.id ?? Date.now(),
+        id: editing?.id ?? globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`,
         name: cleaned.name,
         username: cleaned.username,
         phone: cleaned.phone,
+        branchId: cleaned.branchId || null,
         role: editing?.role === "admin" ? "admin" : cleaned.role,
         active: editing?.role === "admin" || String(editing?.id) === String(currentUser?.id) ? true : Boolean(cleaned.active),
         permissions: editing?.role === "admin" ? permissionsForRole("admin") : { ...cleaned.permissions, "users.manage": false },
       };
-      if (cleaned.password) payload.passwordHash = await hashPassword(cleaned.password);
+      if (cleaned.password) payload.password = cleaned.password;
       if (payload.role === "admin") payload.permissions = permissionsForRole("admin");
 
       const result = await saveSingleItem("users", payload);
       if (result) {
         setList((current) => editing
-          ? current.map((user) => String(user.id) === String(editing.id) ? payload : user)
-          : [...current, payload]);
+          ? current.map((user) => String(user.id) === String(editing.id) ? result : user)
+          : [...current, result]);
         closeModal();
       } else {
         setError("تعذر حفظ بيانات الموظف.");
@@ -143,10 +147,10 @@ export default function Users({ currentUser }) {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
-              <tr><th className="th">الاسم</th><th className="th">اسم المستخدم / الهاتف</th><th className="th">الدور</th><th className="th">الحالة</th><th className="th">إجراءات</th></tr>
+              <tr><th className="th">الاسم</th><th className="th">اسم المستخدم / الهاتف</th><th className="th">الدور</th><th className="th">الفرع</th><th className="th">الحالة</th><th className="th">إجراءات</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {list.length === 0 && <EmptyRow span={5} />}
+              {list.length === 0 && <EmptyRow span={6} />}
               {list.map((user) => {
                 const protectedAccount = user.role === "admin";
                 const isCurrent = String(user.id) === String(currentUser?.id);
@@ -162,6 +166,7 @@ export default function Users({ currentUser }) {
                       {user.phone && <div className="mt-1 text-xs">{user.phone}</div>}
                     </td>
                     <td className="td"><Badge color={protectedAccount ? "yellow" : user.role === "accountant" ? "blue" : "gray"}>{roleAr[user.role] || user.role}</Badge></td>
+                    <td className="td">{user.branchName || branches.find((branch) => String(branch.id) === String(user.branchId))?.name || "—"}</td>
                     <td className="td">
                       <div className="flex items-center gap-2">
                         <Toggle on={user.active !== false} disabled={protectedAccount || isCurrent} onChange={(value) => toggleActive(user, value)} />
@@ -196,8 +201,9 @@ export default function Users({ currentUser }) {
                 <Input type="tel" maxLength={30} dir="ltr" autoComplete="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
               </Field>
               <Field label={editing ? "كلمة مرور جديدة — اتركها فارغة للإبقاء على الحالية" : "كلمة المرور"} required={!editing}>
-                <Input type="password" minLength={8} autoComplete={editing ? "new-password" : "new-password"} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={editing ? "••••••••" : "8 أحرف على الأقل"} />
+                <Input type="password" minLength={12} autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder={editing ? "اتركها فارغة للإبقاء" : "12 حرفًا على الأقل"} />
               </Field>
+              <Field label="الفرع المرتبط بالحساب"><Select value={form.branchId || ""} onChange={(event) => setForm({ ...form, branchId: event.target.value })}><option value="">كل العيادة / غير محدد</option>{branches.filter((branch) => branch.active !== false).map((branch) => <option key={branch.id} value={String(branch.id)}>{branch.name}</option>)}</Select></Field>
               <Field label="الدور الوظيفي">
                 <Select disabled={isAdmin} value={form.role} onChange={(event) => {
                   const role = event.target.value;
@@ -206,6 +212,7 @@ export default function Users({ currentUser }) {
                   <option value="accountant">محاسب</option>
                   <option value="receptionist">موظف استقبال</option>
                   <option value="examiner">طبيب / فاحص</option>
+                  <option value="storekeeper">أمين المخزن</option>
                   {isAdmin && <option value="admin">مدير العيادة</option>}
                 </Select>
               </Field>
@@ -249,9 +256,7 @@ export default function Users({ currentUser }) {
             </section>
 
             {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</div>}
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-              تنبيه: هذه النسخة تحفظ الحسابات والصلاحيات محليًا في المتصفح. لا تعتبر هذه القيود حماية خادمية لبيانات المرضى؛ يلزم ربطها بخادم وقاعدة بيانات قبل الاستخدام عبر الإنترنت أو تخزين بيانات حقيقية.
-            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">تُجزّأ كلمات المرور على الخادم باستخدام bcrypt، وتُفرض صلاحيات الحساب ونطاق فرعه على كل طلب API. استخدم HTTPS عند النشر.</div>
             <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
               <button type="button" onClick={closeModal} className="btn-outline-danger">إلغاء</button>
               <button type="submit" disabled={saving} className="btn-accent disabled:cursor-wait disabled:opacity-60"><i className="fa-solid fa-floppy-disk" /> {saving ? "جارٍ الحفظ…" : editing ? "حفظ التعديلات" : "إنشاء الحساب"}</button>

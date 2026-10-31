@@ -1,9 +1,7 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { Card, Field, Input } from "@/components/ui";
-import { resetStorage, STORAGE_KEYS } from "@/lib/storage";
-import { fetchCollection, saveCollection } from "@/lib/api";
-import { seedPatients, seedExams, seedExaminers, seedProducts, seedInvoices, seedFollowups, seedUsers } from "@/lib/data";
+import { apiRequest, applyImport, fetchCollection, previewImport, saveCollection } from "@/lib/api";
 
 const TABS = [
   { id: "clinic", label: "إعدادات العيادة", icon: "fa-hospital" },
@@ -13,21 +11,16 @@ const TABS = [
 ];
 
 const DEFAULT_SETTINGS = {
-  clinicName: "عيادة العلي",
-  phone1: "0112345678",
+  clinicName: "عيادة الناظر",
+  phone1: "",
   phone2: "",
   footerText: "شكراً لزيارتكم — نسعد بخدمتكم",
   primaryColor: "#2c1b3d",
   waTemplate: "مرحباً {name} 👋\nنذكركم بموعد المراجعة في عيادة {clinic} بتاريخ {date} الساعة {time}.",
 };
 
-const ALL_COLLECTIONS = ["patients", "exams", "examiners", "products", "invoices", "followups", "users"];
-const FALLBACKS = {
-  patients: seedPatients, exams: seedExams, examiners: seedExaminers,
-  products: seedProducts, invoices: seedInvoices, followups: seedFollowups, users: seedUsers,
-};
-
-export default function Settings() {
+const ALL_COLLECTIONS = ["patients", "exams", "examiners", "products", "invoices", "followups", "users", "branches", "lensInventory", "expenses", "returns", "transfers", "stockBatches", "stockMovements"];
+export default function Settings({ can }) {
   const [tab, setTab] = useState("clinic");
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [notice, setNotice] = useState("");
@@ -36,16 +29,13 @@ export default function Settings() {
   const uploadRef = useRef(null);
   const logoRef = useRef(null);
   const [logoPreview, setLogoPreview] = useState(null);
+  const [importPreview, setImportPreview] = useState(null);
 
   useEffect(() => {
     const load = async () => {
       const savedSettings = await fetchCollection("settings", DEFAULT_SETTINGS);
       if (savedSettings && typeof savedSettings === "object") {
         setSettings((prev) => ({ ...prev, ...savedSettings }));
-      }
-      const info = typeof window !== "undefined" ? localStorage.getItem("clinic-backup-info") : null;
-      if (info) {
-        try { setBackupInfo(JSON.parse(info)); } catch {}
       }
     };
     load();
@@ -61,9 +51,6 @@ export default function Settings() {
 
   const persistSettings = async (nextSettings = settings) => {
     await saveCollection("settings", nextSettings);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(nextSettings));
-    }
   };
 
   const reset = () => {
@@ -84,11 +71,15 @@ export default function Settings() {
   };
 
   const backupAction = async () => {
-    showNotice("جاري تجهيز النسخة الاحتياطية الكاملة...");
+    if (typeof can === "function" && !can("users.manage")) {
+      showNotice("تنزيل نسخة بيانات التشغيل متاح لمدير العيادة فقط.", "error");
+      return;
+    }
+    showNotice("جاري تجهيز تصدير بيانات التشغيل...");
     try {
       const data = { settings };
       for (const key of ALL_COLLECTIONS) {
-        data[key] = await fetchCollection(key, FALLBACKS[key]);
+        data[key] = await apiRequest(`/api/collections/${encodeURIComponent(key)}`);
       }
       const payload = {
         version: "1.0",
@@ -109,15 +100,12 @@ export default function Settings() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `clinic-full-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `clinic-data-export-${new Date().toISOString().slice(0, 10)}.json`;
       link.click();
       URL.revokeObjectURL(url);
       const info = { savedAt: payload.savedAt, counts: payload.counts };
       setBackupInfo(info);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("clinic-backup-info", JSON.stringify(info));
-      }
-      showNotice(`تم تنزيل نسخة احتياطية كاملة (${(data.patients || []).length} مريض، ${(data.invoices || []).length} فاتورة) ✅`);
+      showNotice(`تم تنزيل تصدير بيانات التشغيل (${(data.patients || []).length} مريض، ${(data.invoices || []).length} فاتورة) ✅`);
     } catch (e) {
       showNotice("فشل إنشاء النسخة الاحتياطية: " + e.message, "error");
     }
@@ -126,8 +114,8 @@ export default function Settings() {
   const handleBackupUpload = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
-    if (!window.confirm("تحذير: سيتم استبدال جميع البيانات الحالية بالبيانات من الملف. هل أنت متأكد؟")) {
+    if (file.size > 5 * 1024 * 1024) {
+      showNotice("حجم الملف أكبر من 5 ميغابايت.", "error");
       event.target.value = "";
       return;
     }
@@ -137,28 +125,9 @@ export default function Settings() {
       try {
         const parsed = JSON.parse(String(reader.result));
         const payload = parsed?.data ? parsed : { data: parsed };
-
-        if (payload.data?.settings) {
-          const next = { ...DEFAULT_SETTINGS, ...payload.data.settings };
-          setSettings(next);
-          await persistSettings(next);
-        }
-
-        for (const key of ALL_COLLECTIONS) {
-          if (Array.isArray(payload.data?.[key])) {
-            await saveCollection(key, payload.data[key]);
-          }
-        }
-
-        const counts = {};
-        ALL_COLLECTIONS.forEach((k) => { counts[k] = (payload.data?.[k] || []).length; });
-        const info = { savedAt: payload.savedAt || new Date().toISOString(), counts, restoredAt: new Date().toISOString() };
-        setBackupInfo(info);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("clinic-backup-info", JSON.stringify(info));
-        }
-        showNotice(`تم استيراد ${counts.patients || 0} مريض و ${counts.invoices || 0} فاتورة بنجاح — جاري إعادة التحميل... ✅`);
-        setTimeout(() => window.location.reload(), 1500);
+        const preview = await previewImport(payload);
+        setImportPreview({ payload, preview });
+        showNotice("اكتملت المعاينة. لن تُستبدل السجلات الموجودة.");
       } catch (e) {
         showNotice("ملف النسخة الاحتياطية غير صالح: " + e.message, "error");
       }
@@ -167,9 +136,22 @@ export default function Settings() {
     reader.readAsText(file);
   };
 
+  const applyBackupImport = async () => {
+    if (!importPreview?.payload || !window.confirm(`سيتم إضافة ${importPreview.preview.totalToImport} سجل جديد فقط. لن تُستبدل السجلات الموجودة. حسابات الموظفين وطلبات النقل التاريخية لا تُستورد. متابعة؟`)) return;
+    try {
+      const result = await applyImport(importPreview.payload);
+      setImportPreview(null);
+      const count = Object.values(result.imported || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+      showNotice(`اكتمل الاستيراد الآمن. أُضيف ${count} سجل؛ تم تجاوز ${result.skippedUsers || 0} حساب موظف و${result.skippedTransfers || 0} حركة نقل، دون استبدال الموجود.`, "success");
+    } catch (e) {
+      showNotice(`تعذر الاستيراد: ${e.message}`, "error");
+    }
+  };
+
   const handleLogoUpload = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { showNotice("حجم الشعار يجب ألا يتجاوز 2 ميغابايت.", "error"); event.target.value = ""; return; }
     const reader = new FileReader();
     reader.onload = async (e) => {
       const dataUrl = e.target.result;
@@ -182,21 +164,8 @@ export default function Settings() {
     reader.readAsDataURL(file);
   };
 
-  const checkUpdates = async () => {
-    setNotice("جاري التحقق...");
-    await new Promise((r) => setTimeout(r, 800));
-    showNotice("النظام محدّث — الإصدار 1.0.0 ✅");
-  };
-
-  const resetData = () => {
-    if (!window.confirm("تحذير خطير: سيتم حذف جميع البيانات (المرضى، الفواتير، المنتجات...)! هل أنت متأكد 100%؟")) return;
-    const typed = window.prompt("للتأكيد، اكتب كلمة: احذف");
-    if (typed !== "احذف") {
-      showNotice("تم إلغاء العملية", "error");
-      return;
-    }
-    resetStorage();
-    window.location.reload();
+  const checkUpdates = () => {
+    showNotice("فحص التحديثات عبر الإنترنت غير متاح في هذه النسخة. راجع مستودع المشروع أو مسؤول النظام قبل تحديث الملفات.", "error");
   };
 
   const fmtCount = (n) => new Intl.NumberFormat("ar-EG").format(n || 0);
@@ -266,7 +235,6 @@ export default function Settings() {
           <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
             <button type="button" onClick={reset} className="btn-outline-danger">استعادة الافتراضي</button>
             <button type="button" onClick={saveClinic} className="btn-accent"><i className="fa-solid fa-floppy-disk" /> حفظ الإعدادات</button>
-            <button type="button" onClick={resetData} className="btn-outline-danger">⚠️ إعادة تعيين كل البيانات</button>
           </div>
         </Card>
       )}
@@ -285,8 +253,8 @@ export default function Settings() {
           <div className="rounded-xl2 border border-gray-100 p-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <div className="font-extrabold text-primary">النسخة الاحتياطية الكاملة</div>
-                <div className="text-sm text-gray-500">تشمل: المرضى، الفحوصات، الفواتير، المنتجات، الفاحصين، المستخدمين، التنبيهات، الإعدادات</div>
+                <div className="font-extrabold text-primary">تصدير بيانات التشغيل</div>
+                <div className="text-sm text-gray-500">تصدير سجلات العيادة والفروع والمخزون والمصاريف والعوائد بصيغة JSON. لا يشمل كلمات المرور أو الجلسات أو سجل التدقيق، ولا يغني عن نسخة PostgreSQL كاملة.</div>
                 {backupInfo?.savedAt && (
                   <div className="mt-2 text-xs text-success">
                     <i className="fa-solid fa-clock ml-1" />آخر نسخة: {new Date(backupInfo.savedAt).toLocaleString("ar-EG")}
@@ -294,12 +262,24 @@ export default function Settings() {
                 )}
               </div>
               <div className="flex gap-3">
-                <button type="button" onClick={backupAction} className="btn-blue"><i className="fa-solid fa-download" /> تنزيل نسخة كاملة</button>
-                <button type="button" onClick={() => uploadRef.current?.click()} className="btn-accent"><i className="fa-solid fa-upload" /> استعادة من ملف</button>
+                <button type="button" onClick={backupAction} className="btn-blue"><i className="fa-solid fa-download" /> تنزيل نسخة بيانات التشغيل</button>
+                {typeof can !== "function" || can("users.manage") ? <button type="button" onClick={() => uploadRef.current?.click()} className="btn-accent"><i className="fa-solid fa-upload" /> معاينة واستيراد</button> : null}
                 <input ref={uploadRef} type="file" accept="application/json" className="hidden" onChange={handleBackupUpload} />
               </div>
             </div>
           </div>
+
+          {importPreview && (
+            <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="font-extrabold text-amber-950">معاينة الاستيراد — لن تُستبدل السجلات الموجودة</div>
+              <div className="overflow-x-auto rounded-lg border border-amber-100 bg-white">
+                <table className="w-full min-w-[600px]"><thead className="bg-amber-50"><tr><th className="th">القسم</th><th className="th">في الملف</th><th className="th">موجود مسبقًا</th><th className="th">سيضاف</th></tr></thead><tbody className="divide-y divide-gray-100">{Object.entries(importPreview.preview.counts).map(([key, value]) => <tr key={key}><td className="td font-bold">{({ patients:"المرضى", exams:"الفحوصات", examiners:"الفاحصون", followups:"المراجعات", products:"المنتجات", invoices:"الفواتير", settings:"الإعدادات", branches:"الفروع", lensInventory:"مخزون العدسات", expenses:"المصاريف", returns:"العوائد", transfers:"طلبات النقل", stockBatches:"دفعات المخزون", stockMovements:"حركات المخزون", users:"حسابات الموظفين" })[key] || key}</td><td className="td">{value.sourceCount ?? (value.present ? 1 : 0)}</td><td className="td">{value.alreadyPresent ? `${value.alreadyPresent}${value.duplicateInFile ? ` (+${value.duplicateInFile} مكرر بالملف)` : ""}` : value.alreadyPresent === 0 ? 0 : value.alreadyPresent ? "نعم" : "—"}</td><td className="td font-bold text-emerald-700">{typeof value.toImport === "boolean" ? Number(value.toImport) : (value.toImport ?? 0)}</td></tr>)}</tbody></table>
+              </div>
+              {importPreview.preview.skippedUsers > 0 && <p className="text-xs leading-5 text-amber-900">تُتجاوز حسابات الموظفين حفاظًا على كلمات المرور والجلسات؛ أنشئ الحسابات من جديد أو حدّثها عبر شاشة الموظفين.</p>}
+              {importPreview.preview.skippedTransfers > 0 && <p className="text-xs leading-5 text-amber-900">طلبات النقل التاريخية تُتجاوز؛ لا تُعاد حركات النقل المعلّقة عند استيراد نسخة احتياطية.</p>}
+              <div className="flex justify-end gap-2"><button type="button" className="btn-outline-danger" onClick={() => setImportPreview(null)}>إلغاء</button><button type="button" className="btn-accent" disabled={!importPreview.preview.totalToImport} onClick={applyBackupImport}>إضافة السجلات الجديدة فقط</button></div>
+            </div>
+          )}
 
           {backupInfo?.counts && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -327,8 +307,8 @@ export default function Settings() {
       {tab === "updates" && (
         <Card className="p-6 text-center">
           <i className="fa-solid fa-circle-check mb-3 text-4xl text-success" />
-          <div className="text-lg font-extrabold text-primary">النظام محدّث — الإصدار 1.0.0</div>
-          <p className="mt-1 text-sm text-gray-500">Next.js 14.2.35 • React 18.3.1 • Tailwind 3.4</p>
+          <div className="text-lg font-extrabold text-primary">معلومات إصدار التطبيق</div>
+          <p className="mt-1 text-sm text-gray-500">التطبيق 1.0.0 • Next.js 15.5.28 • React 18.3.1 • Tailwind 3.4.4</p>
           <button type="button" onClick={checkUpdates} className="btn-accent mt-4"><i className="fa-solid fa-rotate" /> التحقق من التحديثات</button>
         </Card>
       )}

@@ -1,27 +1,26 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { Card, Modal, Badge, Field, Input, EmptyRow } from "@/components/ui";
-import { seedFollowups, seedPatients } from "@/lib/data";
 import { fetchCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 import { openWhatsApp, fmtDate, todayISO } from "@/lib/utils";
 
 export default function Followups({ can }) {
   const allowed = (permission) => typeof can !== "function" || can(permission);
-  const [rows, setRows] = useState(seedFollowups);
-  const [patients, setPatients] = useState(seedPatients);
+  const [rows, setRows] = useState([]);
+  const [patients, setPatients] = useState([]);
   const [settings, setSettings] = useState({});
 
   useEffect(() => {
     let ignore = false;
     const load = async () => {
       const [loadedFollowups, loadedPatients, loadedSettings] = await Promise.all([
-        fetchCollection("followups", seedFollowups),
-        fetchCollection("patients", seedPatients),
+        fetchCollection("followups"),
+        fetchCollection("patients"),
         fetchCollection("settings", {}),
       ]);
       if (!ignore) {
-        setRows(Array.isArray(loadedFollowups) ? loadedFollowups : seedFollowups);
-        setPatients(Array.isArray(loadedPatients) ? loadedPatients : seedPatients);
+        setRows(Array.isArray(loadedFollowups) ? loadedFollowups : []);
+        setPatients(Array.isArray(loadedPatients) ? loadedPatients : []);
         setSettings(loadedSettings && typeof loadedSettings === "object" ? loadedSettings : {});
       }
     };
@@ -35,7 +34,7 @@ export default function Followups({ can }) {
   const today = todayISO();
   const weekEnd = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   const monthPrefix = today.slice(0, 7);
-  const clinicName = settings.clinicName || "عيادة العلي";
+  const clinicName = settings.clinicName || "عيادة الناظر";
 
   const pOf = (id) => patients.find((x) => x.id === id);
   const effStatus = (r) => (r.status === "pending" && r.date < today ? "overdue" : r.status);

@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "عيادة العلي — نظام إدارة فحص النظر والبصريات",
-  description: "نظام متكامل لإدارة عيادة العلي وفحص النظر",
+  title: "عيادة الناظر — نظام إدارة فحص النظر والبصريات",
+  description: "نظام متكامل لإدارة عيادة الناظر وفحص النظر والبصريات",
   // PWA: يتيح إضافة الموقع للشاشة الرئيسية
   appleWebApp: { capable: true, statusBarStyle: "default" },
 };

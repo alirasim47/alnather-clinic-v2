@@ -1,136 +1,32 @@
 "use client";
-import React, { useState, useEffect, useMemo } from "react";
-import { Card, Field, Input, EmptyRow } from "@/components/ui";
-import { seedPatients, seedExams, seedInvoices } from "@/lib/data";
-import { fetchCollection } from "@/lib/api";
-import { fmtMoney, fmtDate, todayISO } from "@/lib/utils";
+import React,{useEffect,useMemo,useState}from"react";
+import{Badge,Card,EmptyRow,Field,Input,Select}from"@/components/ui";
+import{fetchCollection}from"@/lib/api";
+import{fmtMoney,fmtDate,todayISO}from"@/lib/utils";
 
-export default function Reports({ can }) {
-  const allowed = (permission) => typeof can !== "function" || can(permission);
-  const canInvoices = allowed("invoices.view");
-  const canPatientNames = allowed("patients.view");
-  const canExport = allowed("reports.export") && canInvoices;
-  const [patients, setPatients] = useState(seedPatients);
-  const [exams, setExams] = useState(seedExams);
-  const [invoices, setInvoices] = useState(seedInvoices);
-
-  const today = todayISO();
-  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  const [from, setFrom] = useState(monthAgo);
-  const [to, setTo] = useState(today);
-
-  useEffect(() => {
-    let ignore = false;
-    const load = async () => {
-      const [p, e, i] = await Promise.all([
-        fetchCollection("patients", seedPatients),
-        fetchCollection("exams", seedExams),
-        fetchCollection("invoices", seedInvoices),
-      ]);
-      if (!ignore) {
-        setPatients(Array.isArray(p) ? p : seedPatients);
-        setExams(Array.isArray(e) ? e : seedExams);
-        setInvoices(Array.isArray(i) ? i : seedInvoices);
-      }
-    };
-    load();
-    return () => { ignore = true; };
-  }, []);
-
-  const inRange = (d) => (!from || String(d || "") >= from) && (!to || String(d || "") <= to);
-  const ex = useMemo(() => exams.filter((e) => inRange(e.date)), [exams, from, to]);
-  const inv = useMemo(() => invoices.filter((i) => inRange(i.date)), [invoices, from, to]);
-
-  const totalRev = inv.reduce((s, i) => s + (i.total || 0), 0) + ex.reduce((s, e) => s + (e.price || 0), 0);
-  const totalPaid = inv.reduce((s, i) => s + (i.paid || 0), 0);
-  const totalRem = inv.reduce((s, i) => s + ((i.total || 0) - (i.paid || 0)), 0);
-
-  const exportCsv = () => {
-    if (!canExport) return;
-    const header = ["رقم الفاتورة", "التاريخ", "المريض", "الإجمالي", "المدفوع", "المتبقي"];
-    const rows = inv.map((i) => [
-      i.no,
-      i.date,
-      canPatientNames ? (patients.find((p) => p.id === i.patientId)?.name || "عميل نقدي") : "بيانات محمية",
-      i.total || 0,
-      i.paid || 0,
-      (i.total || 0) - (i.paid || 0),
-    ]);
-    const csv = [header, ...rows].map((r) => r.join(",")).join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `report-${from}-to-${to}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="space-y-6">
-      <Card className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="من تاريخ"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-        <Field label="إلى تاريخ"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-        <div className="flex flex-wrap items-center gap-3 lg:col-span-2 lg:justify-end">
-          {canExport && <button onClick={() => window.print()} className="btn-ghost"><i className="fa-solid fa-print" /> طباعة</button>}
-          {canExport && <button onClick={() => window.print()} className="btn-blue"><i className="fa-solid fa-file-pdf" /> PDF</button>}
-          {canExport && <button onClick={exportCsv} className="btn-green"><i className="fa-solid fa-file-excel" /> Excel</button>}
-        </div>
-      </Card>
-
-      {!canInvoices && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">لا تملك صلاحية عرض بيانات الفواتير في التقارير.</div>}
-      {canInvoices && <>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        <Card className="p-5 text-center">
-          <div className="text-3xl font-black text-primary">{fmtMoney(totalRev)}</div>
-          <div className="mt-1 text-sm font-bold text-gray-500">إجمالي الإيرادات</div>
-        </Card>
-        <Card className="p-5 text-center">
-          <div className="text-3xl font-black text-success">{fmtMoney(totalPaid)}</div>
-          <div className="mt-1 text-sm font-bold text-gray-500">المبالغ المحصلة</div>
-        </Card>
-        <Card className="p-5 text-center">
-          <div className="text-3xl font-black text-info">{ex.length}</div>
-          <div className="mt-1 text-sm font-bold text-gray-500">عدد الفحوصات</div>
-        </Card>
-      </div>
-
-      <Card>
-        <div className="border-b border-gray-100 px-5 py-4">
-          <h3 className="font-extrabold text-primary">
-            <i className="fa-solid fa-table ml-2 text-accent" />تفاصيل الفترة ({fmtDate(from)} — {fmtDate(to)})
-          </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="th">رقم الفاتورة</th><th className="th">التاريخ</th><th className="th">المريض</th>
-                <th className="th">الإجمالي</th><th className="th">المدفوع</th><th className="th">المتبقي</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {inv.length === 0 && <EmptyRow span={6} text="لا توجد فواتير ضمن هذه الفترة" />}
-              {inv.map((i) => (
-                <tr key={i.id} className="hover:bg-accent-soft/40">
-                  <td className="td font-bold">{i.no}</td>
-                  <td className="td">{fmtDate(i.date)}</td>
-                  <td className="td">{canPatientNames ? (patients.find((p) => p.id === i.patientId)?.name || "عميل نقدي") : "بيانات محمية"}</td>
-                  <td className="td">{fmtMoney(i.total)}</td>
-                  <td className="td text-success">{fmtMoney(i.paid)}</td>
-                  <td className="td text-danger">{fmtMoney((i.total || 0) - (i.paid || 0))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex flex-wrap justify-end gap-6 border-t border-gray-100 px-5 py-4 text-sm font-black">
-          <span className="text-gray-600">الإجمالي: <b className="text-primary">{fmtMoney(totalRev)}</b></span>
-          <span className="text-gray-600">المحصل: <b className="text-success">{fmtMoney(totalPaid)}</b></span>
-          <span className="text-gray-600">المتبقي: <b className="text-danger">{fmtMoney(totalRem)}</b></span>
-        </div>
-      </Card>
-      </>}
-    </div>
-  );
+const csvCell=value=>`"${String(value??"").replaceAll('"','""')}"`;
+export default function Reports({can,currentUser}){
+ const allowed=id=>typeof can!=="function"||can(id);const canFinancial=allowed("reports.financial")&&allowed("invoices.view");const canExport=allowed("reports.export")&&canFinancial;
+ const[branches,setBranches]=useState([]);const[invoices,setInvoices]=useState([]);const[returns,setReturns]=useState([]);const[expenses,setExpenses]=useState([]);const[products,setProducts]=useState([]);const[exams,setExams]=useState([]);const[loading,setLoading]=useState(true);const[error,setError]=useState("");
+ const today=todayISO();const monthAgo=new Date(Date.now()-30*86400000).toISOString().slice(0,10);const[from,setFrom]=useState(monthAgo);const[to,setTo]=useState(today);const[branchId,setBranchId]=useState(currentUser?.branchId||"all");const[category,setCategory]=useState("all");
+ useEffect(()=>{let ignore=false;async function load(){setLoading(true);setError("");try{const requests=[fetchCollection("branches",[])];if(canFinancial)requests.push(fetchCollection("invoices",[]),fetchCollection("returns",[]),fetchCollection("expenses",[]),fetchCollection("products",[]));if(allowed("exams.view"))requests.push(fetchCollection("exams",[]));const result=await Promise.all(requests);if(ignore)return;setBranches(Array.isArray(result[0])?result[0]:[]);let index=1;if(canFinancial){setInvoices(Array.isArray(result[index])?result[index++]:[]);setReturns(Array.isArray(result[index])?result[index++]:[]);setExpenses(Array.isArray(result[index])?result[index++]:[]);setProducts(Array.isArray(result[index])?result[index++]:[]);}if(allowed("exams.view"))setExams(Array.isArray(result[index])?result[index]:[]);}catch(e){if(!ignore)setError(e.message||"تعذر تحميل التقارير.");}finally{if(!ignore)setLoading(false);}}load();return()=>{ignore=true;};},[currentUser,canFinancial]);
+ const inRange=row=>{const date=String(row.date||"");return(!from||date>=from)&&(!to||date<=to)&&(branchId==="all"||String(row.branchId||"")===String(branchId));};
+ const periodInvoices=useMemo(()=>invoices.filter(i=>i.status!=="void"&&inRange(i)),[invoices,from,to,branchId]);const periodReturns=useMemo(()=>returns.filter(r=>r.status!=="void"&&inRange(r)),[returns,from,to,branchId]);const periodExpenses=useMemo(()=>expenses.filter(e=>e.status!=="void"&&inRange(e)&&(category==="all"||e.category===category)),[expenses,from,to,branchId,category]);const periodExams=useMemo(()=>exams.filter(inRange),[exams,from,to,branchId]);const periodProducts=useMemo(()=>products.filter(p=>p.active!==false),[products]);
+ const sales=periodInvoices.reduce((s,i)=>s+Number(i.total||0),0);const returnTotal=periodReturns.reduce((s,r)=>s+Number(r.amount||0),0);const netSales=Math.max(0,sales-returnTotal);const cogs=Math.max(0,periodInvoices.reduce((s,i)=>s+Number(i.cogs||0),0)-periodReturns.reduce((s,r)=>s+Number(r.costAmount||0),0));const examRevenue=periodExams.reduce((s,e)=>s+Number(e.price||0),0);const expenseTotal=periodExpenses.reduce((s,e)=>s+Number(e.amount||0),0);const grossProfit=netSales+examRevenue-cogs;const netProfit=grossProfit-expenseTotal;
+ const lowStock=periodProducts.filter(p=>Number(p.qty||0)<=Number(p.min||0));const stockValue=periodProducts.reduce((sum,p)=>sum+Number(p.qty||0)*Number(p.buy||0),0);
+ const productMap=new Map();for(const invoice of periodInvoices){for(const item of invoice.items||[]){const key=String(item.productId||item.name);const entry=productMap.get(key)||{name:item.name||"صنف",qty:0,sales:0,cost:0,category:periodProducts.find(p=>String(p.id)===String(item.productId))?.cat||"other"};entry.qty+=Number(item.qty||0);entry.sales+=Number(item.netAmount??Number(item.price||0)*Number(item.qty||0));entry.cost+=Number(item.costTotal??Number(item.unitCost||0)*Number(item.qty||0));productMap.set(key,entry);}}
+ for(const ret of periodReturns){for(const item of ret.items||[]){const invoice=periodInvoices.find(i=>String(i.id)===String(ret.invoiceId));const original=(invoice?.items||[]).find(i=>String(i.id)===String(item.invoiceItemId));if(!original)continue;const entry=productMap.get(String(original.productId||original.name));if(entry){entry.qty-=Number(item.qty||0);entry.sales-=Number(item.amount||0);entry.cost-=Number(item.costAmount||0);}}}
+ const bestProducts=[...productMap.values()].map(p=>({...p,profit:p.sales-p.cost})).sort((a,b)=>b.profit-a.profit).slice(0,10);
+ const doExport=()=>{if(!canExport)return;const rows=[["نوع السجل","المعرف","التاريخ","الفرع","التفاصيل","الإجمالي","المدفوع / المبلغ","الصافي"],...periodInvoices.map(i=>["فاتورة",i.no,i.date,i.branchName||"",i.patientName||i.patientId||"عميل نقدي",i.total,i.paid,Number(i.total||0)-Number(i.returnedTotal||0)]),...periodReturns.map(r=>["عائد",r.no,r.date,r.branchName||"",r.invoiceNo||r.invoiceId,r.amount,"",-Number(r.amount||0)]),...periodExpenses.map(e=>["مصروف",e.id,e.date,branches.find(b=>String(b.id)===String(e.branchId))?.name||"",e.category,e.amount,"",-Number(e.amount||0)])];const csv="\uFEFF"+rows.map(row=>row.map(csvCell).join(",")).join("\r\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`clinic-report-${from}-${to}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+ const categories=[...new Set(expenses.map(e=>e.category).filter(Boolean))];
+ return <div className="space-y-5" dir="rtl"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-black text-primary">التقارير والتحليلات</h2><p className="mt-1 text-sm text-gray-500">ملخص تشغيلي ومالي قابل للتصفية حسب الفترة والفرع.</p></div>{canExport&&<div className="flex gap-2"><button onClick={()=>window.print()} className="btn-ghost"><i className="fa-solid fa-print"/> طباعة</button><button onClick={doExport} className="btn-blue"><i className="fa-solid fa-file-csv"/> تصدير CSV</button></div>}</div>
+ <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4"><Field label="من تاريخ"><Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/></Field><Field label="إلى تاريخ"><Input type="date" value={to} onChange={e=>setTo(e.target.value)}/></Field><Field label="الفرع"><Select value={branchId} disabled={Boolean(currentUser?.branchId)} onChange={e=>setBranchId(e.target.value)}><option value="all">كل الفروع</option>{branches.map(b=><option key={b.id} value={String(b.id)}>{b.name}</option>)}</Select></Field>{canFinancial&&<Field label="تصنيف المصروف"><Select value={category} onChange={e=>setCategory(e.target.value)}><option value="all">كل التصنيفات</option>{categories.map(c=><option key={c}>{c}</option>)}</Select></Field>}</Card>
+ {error&&<div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">{error}</div>}{loading&&<div role="status" className="rounded-xl bg-white p-5 text-center text-sm text-gray-500">جارٍ إعداد التقرير…</div>}
+ {!canFinancial&&<div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-bold leading-6 text-blue-900">تُعرض المؤشرات التشغيلية فقط. إظهار الإيرادات والتكاليف والأرباح يتطلب صلاحية التقارير المالية وعرض الفواتير.</div>}
+ {canFinancial&&<><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["صافي المبيعات",fmtMoney(netSales+examRevenue),"fa-chart-line","text-primary"],["العوائد",fmtMoney(returnTotal),"fa-arrow-rotate-left","text-orange-700"],["تكلفة البضاعة المباعة",fmtMoney(cogs),"fa-boxes-stacked","text-blue-700"],["صافي الربح بعد المصروفات",fmtMoney(netProfit),"fa-sack-dollar",netProfit>=0?"text-emerald-700":"text-red-700"]].map(([label,value,icon,color])=><Card key={label} className="p-5"><div className="flex items-center justify-between"><span className="text-sm font-bold text-gray-500">{label}</span><i className={`fa-solid ${icon} ${color}`}/></div><div className={`mt-3 text-2xl font-black ${color}`}>{value}</div></Card>)}</div>
+ <div className="grid gap-4 lg:grid-cols-2"><Card className="p-5"><h3 className="font-extrabold text-primary">ملخص الدخل</h3><dl className="mt-4 space-y-3 text-sm">{[["إجمالي المبيعات",sales],["(-) العوائد",-returnTotal],["(+) رسوم الفحوصات",examRevenue],["صافي الإيرادات",netSales+examRevenue],["(-) تكلفة البضاعة",-cogs],["مجمل الربح",grossProfit],["(-) المصروفات",-expenseTotal],["صافي الربح",netProfit]].map(([label,value])=><div key={label} className="flex justify-between gap-3 border-b border-gray-100 pb-2"><dt className="text-gray-600">{label}</dt><dd className="font-bold">{fmtMoney(value)}</dd></div>)}</dl></Card><Card className="p-5"><h3 className="font-extrabold text-primary">مخزون وتنبيهات</h3><div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl bg-gray-50 p-4"><div className="text-2xl font-black text-primary">{periodProducts.length}</div><div className="text-xs text-gray-500">منتج فعال</div></div><div className="rounded-xl bg-red-50 p-4"><div className="text-2xl font-black text-red-700">{lowStock.length}</div><div className="text-xs text-gray-500">أصناف عند حد التنبيه</div></div><div className="col-span-2 rounded-xl bg-emerald-50 p-4"><div className="text-xl font-black text-emerald-800">{fmtMoney(stockValue)}</div><div className="text-xs text-gray-600">قيمة تقريبية حسب الرصيد والكلفة المرجعية؛ لا تستخدم كقيمة محاسبية نهائية</div></div></div></Card></div>
+ <Card><div className="border-b border-gray-100 px-5 py-4"><h3 className="font-extrabold text-primary">الأصناف الأعلى ربحية المقدّرة</h3><p className="mt-1 text-xs text-gray-500">تُحسب من تكلفة الدفعة المخزنة في كل فاتورة مطروحًا منها العوائد.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[650px]"><thead className="bg-gray-50"><tr><th className="th">المنتج</th><th className="th">الكمية الصافية</th><th className="th">صافي المبيعات</th><th className="th">تكلفة البضاعة</th><th className="th">الربح الإجمالي</th></tr></thead><tbody className="divide-y divide-gray-50">{bestProducts.length===0?<EmptyRow span={5} text="لا توجد مبيعات في الفترة المحددة."/>:bestProducts.map((p,i)=><tr key={`${p.name}-${i}`}><td className="td font-bold">{p.name}</td><td className="td">{p.qty}</td><td className="td">{fmtMoney(p.sales)}</td><td className="td">{fmtMoney(p.cost)}</td><td className="td font-bold text-emerald-700">{fmtMoney(p.profit)}</td></tr>)}</tbody></table></div></Card>
+ <Card><div className="border-b border-gray-100 px-5 py-4"><h3 className="font-extrabold text-primary">المصاريف والعوائد المسجلة</h3><p className="mt-1 text-xs text-gray-500">الفترة {fmtDate(from)} — {fmtDate(to)}</p></div><div className="overflow-x-auto"><table className="w-full min-w-[650px]"><thead className="bg-gray-50"><tr><th className="th">النوع</th><th className="th">التاريخ</th><th className="th">الفرع</th><th className="th">التفاصيل</th><th className="th">المبلغ</th></tr></thead><tbody className="divide-y divide-gray-50">{[...periodExpenses.map(e=>({type:"مصروف",date:e.date,branchId:e.branchId,detail:e.category,amount:-Number(e.amount||0)})),...periodReturns.map(r=>({type:"عائد",date:r.date,branchId:r.branchId,detail:r.invoiceNo||"عائد فاتورة",amount:-Number(r.amount||0)}))].length===0?<EmptyRow span={5} text="لا توجد مصروفات أو عوائد ضمن هذه الفترة."/>:[...periodExpenses.map(e=>({id:`e-${e.id}`,type:"مصروف",date:e.date,branchId:e.branchId,detail:`${e.category}${e.notes?` — ${e.notes}`:""}`,amount:Number(e.amount||0)})),...periodReturns.map(r=>({id:`r-${r.id}`,type:"عائد",date:r.date,branchId:r.branchId,detail:r.invoiceNo||"عائد فاتورة",amount:Number(r.amount||0)}))].map(r=><tr key={r.id}><td className="td">{r.type}</td><td className="td" dir="ltr">{r.date}</td><td className="td">{branches.find(b=>String(b.id)===String(r.branchId))?.name||"—"}</td><td className="td">{r.detail}</td><td className="td font-bold">{fmtMoney(r.amount)}</td></tr>)}</tbody></table></div></Card></>}
+ {allowed("exams.view")&&<div className="text-xs text-gray-500">عدد الفحوصات المسجلة خلال الفترة: <b>{periodExams.length}</b> — إجمالي رسومها: <b>{fmtMoney(examRevenue)}</b></div>}
+ </div>;
 }

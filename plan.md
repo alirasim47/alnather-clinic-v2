@@ -70,3 +70,7 @@
 - [نسخ واستعادة PostgreSQL في Supabase](https://supabase.com/docs/guides/platform/backups)
 - [مناطق Supabase](https://supabase.com/docs/guides/platform/regions)
 - [أوضاع اتصال PostgreSQL والتجميع](https://supabase.com/docs/guides/database/connecting-to-postgres/pooling-and-limits)
+
+## إصلاح الطباعة الآمن (البند 1.1 المصرح به)
+
+تهريب كل قيمة ديناميكية في قالبي الوصفة والفاتورة قبل إدراجها كنص HTML عبر مساعد موحد في `lib/print-html.mjs`، وجعل بناء القالبين دوالًا نقية قابلة للاختبار. تُضاف CSP داخل كل صفحة طباعة تسمح بالأنماط والخط الخارجيين اللازمين فقط، وتحظر السكربتات والكائنات؛ يُنقل استدعاء `window.print()` إلى نافذة المنشئ بدل تضمين `<script>` بالقوالب. يُفحص كذلك كل `document.write` و`innerHTML` ونظائرها وروابط WhatsApp. البديل الأوسع هو صفحة طباعة React مستقلة أو iframe معزول؛ يُفضّل الإصلاح المحدود الآن لتقليل التغيير والمخاطر مع اختبار خرج القالبين مباشرة.

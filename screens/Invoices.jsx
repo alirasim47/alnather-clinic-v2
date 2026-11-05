@@ -4,6 +4,7 @@ import { Card, Badge, Input, Select, Field, Modal, EmptyRow } from "@/components
 import { payAr } from "@/lib/data";
 import { createSale, fetchCollection, recordInvoicePayment } from "@/lib/api";
 import { fmtMoney, fmtDate, todayISO } from "@/lib/utils";
+import { buildInvoiceHtml } from "@/lib/print-html.mjs";
 
 const LENS_TYPE_LABELS = { spherical: "كروية", toric: "استجماتزم", multifocal: "متعددة البؤر", contact: "لاصقة", other: "أخرى" };
 function describeLens(lens) {
@@ -188,42 +189,18 @@ export default function Invoices({ can, currentUser }) {
   );
 }
 
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[character]);
-}
-
 function printInvoice({ invoice, patientName, clinicName }) {
-  const rowsHtml = (invoice.items || []).map((it, idx) => `
-    <tr><td>${escapeHtml(idx + 1)}</td><td>${escapeHtml(it.name)}</td><td>${escapeHtml(it.qty)}</td><td>${escapeHtml(fmtMoney(it.price))}</td><td>${escapeHtml(fmtMoney(Number(it.price || 0) * Number(it.qty || 0)))}</td></tr>`).join("");
-  const safeInvoiceNo = escapeHtml(invoice.no);
-  const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>فاتورة ${safeInvoiceNo}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet">
-  <style>*{box-sizing:border-box;font-family:Tajawal,sans-serif}body{margin:24px;color:#1f2937}
-  .head{display:flex;justify-content:space-between;border-bottom:3px solid #2c1b3d;padding-bottom:10px}
-  h1{font-size:20px;color:#2c1b3d;margin:0}
-  table{width:100%;border-collapse:collapse;margin-top:14px}
-  th,td{border:1px solid #d1d5db;padding:8px;text-align:center;font-size:13px}
-  th{background:#2c1b3d;color:#fff}
-  .tot{margin-top:14px;font-size:14px}
-  .foot{margin-top:26px;font-size:11px;color:#6b7280;text-align:center;border-top:1px dashed #d1d5db;padding-top:8px}
-  </style></head><body>
-  <div class="head"><h1>${escapeHtml(clinicName)}</h1><div>فاتورة رقم: ${safeInvoiceNo}<br>التاريخ: ${escapeHtml(invoice.date)}</div></div>
-  <p><b>المريض:</b> ${escapeHtml(patientName)}</p>
-  <table><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr>${rowsHtml}</table>
-  <div class="tot">
-    <p>الإجمالي: <b>${escapeHtml(fmtMoney(invoice.total))}</b></p>
-    <p>المدفوع: <b>${escapeHtml(fmtMoney(invoice.paid))}</b></p>
-    <p>المتبقي: <b>${escapeHtml(fmtMoney(Math.max(0, (invoice.total || 0) - (invoice.paid || 0) - (invoice.returnedTotal || 0))))}</b></p>
-  </div>
-  <div class="foot">شكراً لثقتكم — ${escapeHtml(clinicName)}</div>
-  <script>window.onload=()=>setTimeout(()=>window.print(),300)</script>
-  </body></html>`;
+  const html = buildInvoiceHtml({ invoice, patientName, clinicName, formatMoney: fmtMoney });
   const w = window.open("", "_blank", "width=800,height=900");
   if (!w) { window.alert("اسمح بفتح نافذة الطباعة ثم حاول مجددًا."); return; }
+  w.opener = null;
+  w.document.open();
   w.document.write(html);
   w.document.close();
+  w.focus();
+  setTimeout(() => {
+    if (!w.closed) w.print();
+  }, 300);
 }
 
 function PosModal({ onClose, onSave, currentUser }) {

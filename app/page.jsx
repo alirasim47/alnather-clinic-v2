@@ -104,8 +104,8 @@ function Login({ onLogin }) {
             </div>
             <form onSubmit={submit} className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-bold text-gray-700">رمز العيادة <span className="font-normal text-gray-400">(عند تعدد العيادات)</span></label>
-                <input autoComplete="organization" className="input" dir="ltr" placeholder="clinic-code" value={clinicSlug} onChange={(event) => setClinicSlug(event.target.value)} />
+                <label className="mb-1.5 block text-sm font-bold text-gray-700">رمز العيادة</label>
+                <input required autoComplete="organization" className="input" dir="ltr" placeholder="clinic-code" value={clinicSlug} onChange={(event) => setClinicSlug(event.target.value)} />
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-bold text-gray-700">اسم المستخدم أو رقم الهاتف</label>

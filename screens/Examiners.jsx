@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { Card, Toggle, Badge, Modal, Field, Input, Select, EmptyRow } from "@/components/ui";
-import { fetchCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
+import { createSingleItem, fetchCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 
 const defaultForm = { name: "", phone: "", role: "أخصائي بصريات", active: true };
 
@@ -19,27 +19,31 @@ export default function Examiners({ can }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [f, setF] = useState(defaultForm);
+  const [error, setError] = useState("");
 
-  const openAdd = () => { setEditing(null); setF(defaultForm); setOpen(true); };
-  const openEdit = (item) => { setEditing(item); setF({ name: item.name, phone: item.phone, role: item.role, active: item.active }); setOpen(true); };
-  const close = () => { setOpen(false); setEditing(null); setF(defaultForm); };
+  const openAdd = () => { setEditing(null); setF(defaultForm); setError(""); setOpen(true); };
+  const openEdit = (item) => { setEditing(item); setF({ name: item.name, phone: item.phone, role: item.role, active: item.active }); setError(""); setOpen(true); };
+  const close = () => { setOpen(false); setEditing(null); setF(defaultForm); setError(""); };
 
   const submit = async (e) => {
     e.preventDefault();
     if (!allowed(editing ? "examiners.update" : "examiners.create")) return;
     const clean = { ...f, name: f.name.trim(), phone: f.phone.trim() };
     if (!clean.name) return;
-
-    if (editing) {
-      const payload = { ...editing, ...clean };
-      const result = await saveSingleItem("examiners", payload);
-      if (result) setList((current) => current.map((item) => item.id === editing.id ? payload : item));
-    } else {
-      const payload = { id: Date.now(), ...clean, active: true };
-      const result = await saveSingleItem("examiners", payload);
-      if (result) setList((current) => [...current, payload]);
+    setError("");
+    try {
+      if (editing) {
+        const payload = { ...editing, ...clean };
+        const result = await saveSingleItem("examiners", payload);
+        if (result) setList((current) => current.map((item) => item.id === editing.id ? result : item));
+      } else {
+        const result = await createSingleItem("examiners", { ...clean, active: true });
+        if (result) setList((current) => [...current, result]);
+      }
+      close();
+    } catch (saveError) {
+      setError(saveError?.message || "تعذر حفظ بيانات الفاحص.");
     }
-    close();
   };
 
   const toggleActive = async (item, v) => {
@@ -111,6 +115,7 @@ export default function Examiners({ can }) {
                 <option>أخصائي بصريات</option><option>طبيب عيون</option><option>فني بصريات</option>
               </Select>
             </Field>
+            {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p>}
             <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
               <span className="font-bold text-gray-700">الحالة</span>
               <Toggle on={f.active} onChange={(v) => setF({ ...f, active: v })} />

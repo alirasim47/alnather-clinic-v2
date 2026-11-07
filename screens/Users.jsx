@@ -87,7 +87,7 @@ export default function Users({ currentUser }) {
         branchId: cleaned.branchId || null,
         role: editing?.role === "admin" ? "admin" : cleaned.role,
         active: editing?.role === "admin" || String(editing?.id) === String(currentUser?.id) ? true : Boolean(cleaned.active),
-        permissions: editing?.role === "admin" ? permissionsForRole("admin") : { ...cleaned.permissions, "users.manage": false },
+        permissions: editing?.role === "admin" ? permissionsForRole("admin") : { ...cleaned.permissions, "users.manage": false, "audit.view": false },
       };
       if (cleaned.password) payload.password = cleaned.password;
       if (payload.role === "admin") payload.permissions = permissionsForRole("admin");
@@ -243,8 +243,8 @@ export default function Users({ currentUser }) {
                           <input
                             type="checkbox"
                             className="h-4 w-4 accent-[#eab308]"
-                            checked={isAdmin || (permission.id === "users.manage" ? false : Boolean(form.permissions[permission.id]))}
-                            disabled={isAdmin || permission.id === "users.manage"}
+                            checked={isAdmin || (["users.manage", "audit.view"].includes(permission.id) ? false : Boolean(form.permissions[permission.id]))}
+                            disabled={isAdmin || ["users.manage", "audit.view"].includes(permission.id)}
                             onChange={(event) => updatePermission(permission.id, event.target.checked)}
                           />
                         </label>

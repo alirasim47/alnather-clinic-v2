@@ -30,6 +30,10 @@ export default function Settings({ can }) {
   const logoRef = useRef(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
+  const [importResult, setImportResult] = useState(null);
+  const [auditFrom, setAuditFrom] = useState("");
+  const [auditTo, setAuditTo] = useState("");
+  const [auditExporting, setAuditExporting] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -111,9 +115,69 @@ export default function Settings({ can }) {
     }
   };
 
+  const exportAuditAction = async () => {
+    if (typeof can !== "function" || !can("audit.view")) {
+      showNotice("تصدير سجل التدقيق متاح لمدير العيادة فقط.", "error");
+      return;
+    }
+    if (auditFrom && auditTo && auditFrom > auditTo) {
+      showNotice("تاريخ البداية يجب ألا يأتي بعد تاريخ النهاية.", "error");
+      return;
+    }
+    setAuditExporting(true);
+    showNotice("جاري تجهيز سجل التدقيق...");
+    try {
+      const events = [];
+      const seenCursors = new Set();
+      let cursor = null;
+      let clinicId = null;
+      do {
+        if (events.length >= 20000) {
+          throw new Error("يتجاوز السجل 20,000 حدث. حدّد نطاقًا زمنيًا أضيق ثم أعد التصدير.");
+        }
+        const params = new URLSearchParams({ limit: "500" });
+        if (auditFrom) params.set("from", auditFrom);
+        if (auditTo) params.set("to", auditTo);
+        if (cursor) params.set("cursor", cursor);
+        const page = await apiRequest(`/api/admin/audit?${params.toString()}`);
+        if (!Array.isArray(page?.events)) throw new Error("استجابة سجل التدقيق غير صالحة.");
+        if (clinicId !== null && String(page.clinicId) !== String(clinicId)) throw new Error("تغيّر نطاق العيادة أثناء التصدير؛ أعد المحاولة.");
+        clinicId = page.clinicId;
+        events.push(...page.events);
+        cursor = page.nextCursor || null;
+        if (cursor && seenCursors.has(cursor)) throw new Error("تعذر متابعة صفحات سجل التدقيق بأمان.");
+        if (cursor) seenCursors.add(cursor);
+      } while (cursor);
+
+      const payload = {
+        version: "1.0",
+        exportedAt: new Date().toISOString(),
+        clinicId,
+        clinicName: settings.clinicName,
+        dateRange: { from: auditFrom || null, to: auditTo || null },
+        count: events.length,
+        events,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `clinic-audit-${auditFrom || "all"}-${auditTo || "all"}-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showNotice(`تم تنزيل ${events.length.toLocaleString("ar-EG")} حدثًا من سجل تدقيق هذه العيادة. احفظ الملف في مكان آمن؛ قد يحتوي بيانات طبية حساسة.`);
+    } catch (e) {
+      showNotice(`تعذر تصدير سجل التدقيق: ${e.message}`, "error");
+    } finally {
+      setAuditExporting(false);
+    }
+  };
+
   const handleBackupUpload = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    setImportPreview(null);
+    setImportResult(null);
     if (file.size > 5 * 1024 * 1024) {
       showNotice("حجم الملف أكبر من 5 ميغابايت.", "error");
       event.target.value = "";
@@ -137,12 +201,21 @@ export default function Settings({ can }) {
   };
 
   const applyBackupImport = async () => {
-    if (!importPreview?.payload || !window.confirm(`سيتم إضافة ${importPreview.preview.totalToImport} سجل جديد فقط. لن تُستبدل السجلات الموجودة. حسابات الموظفين وطلبات النقل التاريخية لا تُستورد. متابعة؟`)) return;
+    if (!importPreview?.payload) return;
+    const invoiceValidation = importPreview.preview.invoiceValidation;
+    const invoiceSummary = invoiceValidation
+      ? `\nالفواتير: ${invoiceValidation.validCount} صالحة ستُضاف، ${invoiceValidation.rejectedCount} مرفوضة ستُستبعد، وإنشاء ${invoiceValidation.paymentCount} سجل دفعة. الفواتير المرحّلة لا تخصم المخزون.`
+      : "";
+    if (!window.confirm(`سيتم إضافة ${importPreview.preview.totalToImport} سجل جديد صالح فقط. لن تُستبدل السجلات الموجودة.${invoiceSummary}\nحسابات الموظفين وطلبات النقل التاريخية لا تُستورد. متابعة؟`)) return;
     try {
       const result = await applyImport(importPreview.payload);
       setImportPreview(null);
+      setImportResult(result.invoiceImport || null);
       const count = Object.values(result.imported || {}).reduce((sum, value) => sum + Number(value || 0), 0);
-      showNotice(`اكتمل الاستيراد الآمن. أُضيف ${count} سجل؛ تم تجاوز ${result.skippedUsers || 0} حساب موظف و${result.skippedTransfers || 0} حركة نقل، دون استبدال الموجود.`, "success");
+      const invoiceResult = result.invoiceImport;
+      const partial = Number(invoiceResult?.rejectedCount || 0) > 0;
+      const invoiceText = invoiceResult ? ` أُضيف ${invoiceResult.imported || 0} فاتورة و${invoiceResult.paymentRowsInserted || 0} دفعة تاريخية؛ استُبعدت ${invoiceResult.rejectedCount || 0} فاتورة غير صالحة.` : "";
+      showNotice(`${partial ? "اكتمل الاستيراد جزئيًا." : "اكتمل الاستيراد الآمن."} أُضيف ${count} سجل.${invoiceText} تم تجاوز ${result.skippedUsers || 0} حساب موظف و${result.skippedTransfers || 0} حركة نقل، دون استبدال الموجود.`, partial ? "error" : "success");
     } catch (e) {
       showNotice(`تعذر الاستيراد: ${e.message}`, "error");
     }
@@ -269,6 +342,23 @@ export default function Settings({ can }) {
             </div>
           </div>
 
+          {typeof can === "function" && can("audit.view") && (
+            <div className="rounded-xl2 border border-amber-200 bg-amber-50/40 p-4">
+              <div className="mb-3">
+                <div className="font-extrabold text-primary">تصدير سجل التدقيق</div>
+                <div className="text-sm leading-6 text-gray-600">تصدير أحداث هذه العيادة مع الفروقات قبل/بعد، بصفحات محدودة ونطاق تاريخ اختياري. قد يتضمن الملف معلومات طبية حساسة؛ خزّنه بأمان.</div>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <Field label="من تاريخ (اختياري)"><Input type="date" value={auditFrom} onChange={(event) => setAuditFrom(event.target.value)} /></Field>
+                <Field label="إلى تاريخ (اختياري)"><Input type="date" value={auditTo} onChange={(event) => setAuditTo(event.target.value)} /></Field>
+                <button type="button" onClick={exportAuditAction} disabled={auditExporting} className="btn-accent disabled:cursor-wait disabled:opacity-60">
+                  <i className={`fa-solid ${auditExporting ? "fa-spinner fa-spin" : "fa-file-arrow-down"}`} /> {auditExporting ? "جاري التصدير..." : "تنزيل سجل التدقيق"}
+                </button>
+              </div>
+              <div className="mt-2 text-xs text-gray-500">اترك التاريخين فارغين لتصدير السجل كاملًا. إذا تجاوز 20,000 حدث، اختر نطاقًا زمنيًا أضيق.</div>
+            </div>
+          )}
+
           {importPreview && (
             <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="font-extrabold text-amber-950">معاينة الاستيراد — لن تُستبدل السجلات الموجودة</div>
@@ -277,9 +367,23 @@ export default function Settings({ can }) {
               </div>
               {importPreview.preview.skippedUsers > 0 && <p className="text-xs leading-5 text-amber-900">تُتجاوز حسابات الموظفين حفاظًا على كلمات المرور والجلسات؛ أنشئ الحسابات من جديد أو حدّثها عبر شاشة الموظفين.</p>}
               {importPreview.preview.skippedTransfers > 0 && <p className="text-xs leading-5 text-amber-900">طلبات النقل التاريخية تُتجاوز؛ لا تُعاد حركات النقل المعلّقة عند استيراد نسخة احتياطية.</p>}
-              <div className="flex justify-end gap-2"><button type="button" className="btn-outline-danger" onClick={() => setImportPreview(null)}>إلغاء</button><button type="button" className="btn-accent" disabled={!importPreview.preview.totalToImport} onClick={applyBackupImport}>إضافة السجلات الجديدة فقط</button></div>
+              {importPreview.preview.invoiceValidation && <div role="status" className="space-y-2 rounded-lg border border-amber-300 bg-white p-3 text-sm text-amber-950">
+                <div className="font-extrabold">تدقيق الفواتير القديمة: {importPreview.preview.invoiceValidation.validCount} صالحة، {importPreview.preview.invoiceValidation.alreadyPresent} موجودة، {importPreview.preview.invoiceValidation.duplicateInFile} مكررة بالملف، و{importPreview.preview.invoiceValidation.rejectedCount} مرفوضة. سيُنشأ {importPreview.preview.invoiceValidation.paymentCount} سجل دفعة دون خصم مخزون.</div>
+                {importPreview.preview.invoiceValidation.rejected?.length > 0 && <ul className="max-h-40 list-disc space-y-1 overflow-y-auto pr-5 text-xs leading-5">
+                  {importPreview.preview.invoiceValidation.rejected.slice(0, 20).map((issue, index) => <li key={`${issue.invoice}-${index}`}><b>{issue.invoice}:</b> {issue.reason}</li>)}
+                </ul>}
+                {importPreview.preview.invoiceValidation.rejectionListTruncated && <p className="text-xs">عُرضت أول 20 ملاحظة فقط؛ سيحفظ التقرير النهائي عددًا محدودًا من التفاصيل.</p>}
+              </div>}
+              <div className="flex justify-end gap-2"><button type="button" className="btn-outline-danger" onClick={() => setImportPreview(null)}>إلغاء</button><button type="button" className="btn-accent" disabled={!importPreview.preview.totalToImport} onClick={applyBackupImport}>إضافة السجلات الجديدة الصالحة فقط</button></div>
             </div>
           )}
+
+          {importResult && <div role="status" className={`space-y-2 rounded-xl border p-4 ${importResult.rejectedCount ? "border-amber-300 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950"}`}>
+            <div className="font-extrabold">نتيجة استيراد الفواتير: أُضيف {importResult.imported || 0} فاتورة و{importResult.paymentRowsInserted || 0} سجل دفعة، واستُبعدت {importResult.rejectedCount || 0} فاتورة.</div>
+            {importResult.rejected?.length > 0 && <ul className="max-h-48 list-disc space-y-1 overflow-y-auto pr-5 text-xs leading-5">
+              {importResult.rejected.slice(0, 20).map((issue, index) => <li key={`${issue.invoice}-${index}`}><b>{issue.invoice}:</b> {issue.reason}</li>)}
+            </ul>}
+          </div>}
 
           {backupInfo?.counts && (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

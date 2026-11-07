@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import bcrypt from "bcryptjs";
+import { validateAdminPassword } from "./password-policy.mjs";
 
 const clinicName = String(process.env.CLINIC_NAME || "").trim();
 const clinicSlug = String(process.env.CLINIC_SLUG || "").trim().toLowerCase();
@@ -8,8 +9,13 @@ const adminName = String(process.env.ADMIN_NAME || "").trim();
 const username = String(process.env.ADMIN_USERNAME || "").trim().toLowerCase();
 const password = String(process.env.ADMIN_PASSWORD || "");
 
-if (!process.env.DATABASE_URL || !clinicName || !clinicSlug || !adminName || !username || password.length < 12) {
-  console.error("Set DATABASE_URL, CLINIC_NAME, CLINIC_SLUG, ADMIN_NAME, ADMIN_USERNAME and an ADMIN_PASSWORD of at least 12 characters.");
+if (!process.env.DATABASE_URL || !clinicName || !clinicSlug || !adminName || !username) {
+  console.error("Set DATABASE_URL, CLINIC_NAME, CLINIC_SLUG, ADMIN_NAME and ADMIN_USERNAME.");
+  process.exit(1);
+}
+const passwordError = validateAdminPassword(password);
+if (passwordError) {
+  console.error(`Invalid ADMIN_PASSWORD: ${passwordError}.`);
   process.exit(1);
 }
 if (!/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/.test(clinicSlug)) {

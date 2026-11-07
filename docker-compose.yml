@@ -30,7 +30,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       DATABASE_SSL: "false"
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
     ports:
       - "127.0.0.1:${APP_PORT:-3000}:3000"

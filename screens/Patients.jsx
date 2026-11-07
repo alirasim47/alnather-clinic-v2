@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useMemo, useEffect } from "react";
 import { Card, Modal, Field, Input, Badge, EmptyRow } from "@/components/ui";
-import { fetchCollection, saveCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
+import { createSingleItem, fetchCollection, saveCollection, saveSingleItem, deleteSingleItem } from "@/lib/api";
 import { fmtMoney, fmtDate, printPrescription, openWhatsApp, todayISO } from "@/lib/utils";
 import ExamForm from "@/components/ExamForm";
 
@@ -51,12 +51,9 @@ export default function Patients({ can }) {
 
   const savePatient = async (data) => {
     if (!allowed("patients.create")) return;
-    const nextId = patients.length ? Math.max(...patients.map((p) => p.id)) + 1 : 1;
-    const item = { id: nextId, fileNo: `P-${1000 + nextId}`, lastVisit: "—", ...data };
-    const result = await saveSingleItem("patients", item);
-    if (result) {
-      setPatients((current) => [...current, item]);
-    }
+    const item = { lastVisit: "—", ...data };
+    const result = await createSingleItem("patients", item);
+    if (result) setPatients((current) => [...current, result]);
     setAddOpen(false);
   };
 
@@ -422,6 +419,7 @@ export default function Patients({ can }) {
 }
 
 function PatientFormModal({ patient = null, onClose, onSave, title }) {
+  const [error, setError] = useState("");
   const [f, setF] = useState({
     name: patient?.name || "",
     phone1: patient?.phone1 || "",
@@ -433,10 +431,20 @@ function PatientFormModal({ patient = null, onClose, onSave, title }) {
   });
 
   const set = (k) => (e) => setF((prev) => ({ ...prev, [k]: e.target.value }));
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!f.name.trim()) return;
+    setError("");
+    try {
+      await onSave({ ...f, name: f.name.trim() });
+    } catch (saveError) {
+      setError(saveError?.message || "تعذر حفظ بيانات المريض.");
+    }
+  };
 
   return (
     <Modal open onClose={onClose} title={title}>
-      <form onSubmit={(e) => { e.preventDefault(); if (f.name.trim()) onSave({ ...f, name: f.name.trim() }); }} className="space-y-4">
+      <form onSubmit={submit} className="space-y-4">
         <Field label="الاسم الكامل" required>
           <Input required placeholder="أدخل اسم المريض الثلاثي" value={f.name} onChange={set("name")} />
         </Field>
@@ -459,6 +467,7 @@ function PatientFormModal({ patient = null, onClose, onSave, title }) {
         </div>
         <Field label="العنوان"><Input placeholder="المدينة — الحي" value={f.address} onChange={set("address")} /></Field>
         <Field label="ملاحظات"><textarea className="input min-h-20" placeholder="أي ملاحظات طبية مهمة..." value={f.notes} onChange={set("notes")} /></Field>
+        {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p>}
         <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
           <button type="button" onClick={onClose} className="btn-outline-danger">إلغاء</button>
           <button type="submit" className="btn-accent"><i className="fa-solid fa-floppy-disk" /> {patient ? "حفظ التعديلات" : "حفظ"}</button>
